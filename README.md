@@ -33,6 +33,4 @@ python manage.py test
 
 Винести `SECRET_KEY` у змінну середовища, вимкнути `DEBUG`, вказати `ALLOWED_HOSTS`, налаштувати HTTPS/HSTS, secure cookies, PostgreSQL та сервер статики. WebSocket-шар реалізовано через Django Channels; локально використовується `InMemoryChannelLayer`. Для production замініть його на Redis channel layer. Збереження повідомлень виконується HTML-формами, а WebSocket-шар готовий для миттєвого UI-оновлення.
 
-## GitFlow
 
-Рекомендовані гілки: `main`, `develop`, `feature/*`, `release/*`, `hotfix/*`. Злиття — через pull request після проходження тестів.
