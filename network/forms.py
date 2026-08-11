@@ -1,0 +1,21 @@
+from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import UserCreationForm
+from .models import Comment, Group, Message, Post, Profile, Rating
+
+User=get_user_model()
+class SignupForm(UserCreationForm):
+    email=forms.EmailField(required=True)
+    class Meta(UserCreationForm.Meta): model=User; fields=('username','email','first_name','last_name')
+class ProfileForm(forms.ModelForm):
+    class Meta: model=Profile; fields=('bio','avatar','cover')
+class PostForm(forms.ModelForm):
+    class Meta: model=Post; fields=('body','media_url'); widgets={'body':forms.Textarea(attrs={'rows':3,'placeholder':'Що нового?'})}
+class CommentForm(forms.ModelForm):
+    class Meta: model=Comment; fields=('body',); widgets={'body':forms.TextInput(attrs={'placeholder':'Коментар...'})}
+class GroupForm(forms.ModelForm):
+    class Meta: model=Group; fields=('name','description')
+class MessageForm(forms.ModelForm):
+    class Meta: model=Message; fields=('body',)
+class RatingForm(forms.ModelForm):
+    class Meta: model=Rating; fields=('value','review'); widgets={'value':forms.NumberInput(attrs={'min':1,'max':5})}

@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block title %}Стрічка · UASocial{% endblock %}{% block content %}<div class="narrow"><h1>Твоя стрічка</h1><form class="card" method="post">{% csrf_token %}{{form.as_p}}<button class="button">Опублікувати</button></form>{% include 'network/_posts.html' %}</div>{% endblock %}

@@ -1,0 +1,1 @@
+{% extends 'base.html' %}{% block content %}<div class="narrow"><h1>Чати</h1>{% for c in conversations %}<a class="card block" href="{% url 'conversation' c.pk %}">{{c.title|default:'Груповий чат'}} · {{c.participants.count}} учасників</a>{% empty %}<div class="card">Чатів ще немає.</div>{% endfor %}</div>{% endblock %}
