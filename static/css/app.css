@@ -120,7 +120,7 @@ input,textarea,select{width:100%;border:1px solid #d9dce7;border-radius:10px;pad
 input[type="checkbox"],input[type="radio"]{width:auto}
 input[type="file"]{padding:9px;background:#f9fafd}
 .auth{max-width:480px;margin:40px auto}
-.or-divider{text-align:center;color:var(--muted);margin:12px 0}.auth-foot{text-align:center;margin:16px 0 0;font-size:14px}.auth-foot a{font-weight:600}.google-g{vertical-align:-3px;margin-right:6px}
+.profile-stats{margin:4px 0 0;font-size:14px}.chat-item small{display:block;margin-top:4px}.or-divider{text-align:center;color:var(--muted);margin:12px 0}.auth-foot{text-align:center;margin:16px 0 0;font-size:14px}.auth-foot a{font-weight:600}.google-g{vertical-align:-3px;margin-right:6px}
 
 /* — профіль — */
 .profile-cover{height:240px;background:linear-gradient(135deg,#252f63,#9677ed);background-size:cover;border-radius:22px}

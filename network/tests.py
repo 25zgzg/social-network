@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from .models import Conversation, Event, Follow, Friendship, Group, Like, Membership, NotificationSetting, Post, Profile, Rating
+from .models import Conversation, Event, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating
 class ShareFeedTests(TestCase):
  def setUp(self):
   self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
@@ -283,3 +283,21 @@ class SeedDemoTests(TestCase):
   from django.core.management import call_command
   call_command('seed_demo',clean=True)
   self.assertFalse(User.objects.filter(pk=junk.pk).exists());self.assertTrue(User.objects.filter(username='nazar').exists())
+
+class UxLogicTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+  Friendship.objects.create(sender=self.user,receiver=self.other,status='accepted')
+ def test_start_chat_idempotent(self):
+  r1=self.client.get(reverse('start_chat',args=['olia']));r2=self.client.get(reverse('start_chat',args=['olia']))
+  self.assertEqual(r1.status_code,302);self.assertEqual(Conversation.objects.count(),1)
+ def test_private_chat_titled_by_other_user(self):
+  c=Conversation.objects.create();c.participants.add(self.user,self.other);Message.objects.create(conversation=c,sender=self.other,body='привіт!')
+  r=self.client.get(reverse('chats'));self.assertContains(r,'@olia');self.assertContains(r,'привіт!')
+ def test_profile_shows_counters(self):
+  p=Post.objects.create(author=self.other,body='пост')
+  r=self.client.get(reverse('profile',args=['olia']));self.assertContains(r,'1</b> публікацій');self.assertContains(r,'1</b> друзів');self.assertContains(r,'Написати')
+ def test_like_notification_has_url(self):
+  p=Post.objects.create(author=self.other,body='пост');self.client.post(reverse('like',args=[p.pk]))
+  n=self.other.notifications.first();self.assertTrue(n);self.assertEqual(n.url,f'/u/{self.other.username}/')

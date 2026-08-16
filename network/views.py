@@ -40,7 +40,8 @@ def profile(request,username):
     user=get_object_or_404(User,username=username); Profile.objects.get_or_create(user=user)
     fs=Friendship.objects.filter(Q(sender=request.user,receiver=user)|Q(sender=user,receiver=request.user)).first()
     state='friend' if fs and fs.status=='accepted' else 'incoming' if fs and fs.sender==user else 'outgoing' if fs else 'none'
-    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.all(),'is_following':Follow.objects.filter(follower=request.user,target=user).exists(),'friend_state':state})
+    stats={'posts':user.posts.count(),'friends':Friendship.objects.filter(Q(sender=user,status='accepted')|Q(receiver=user,status='accepted')).count(),'followers':Follow.objects.filter(target=user).count()}
+    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.all(),'is_following':Follow.objects.filter(follower=request.user,target=user).exists(),'friend_state':state,'stats':stats})
 @login_required
 def edit_profile(request):
     profile,_=Profile.objects.get_or_create(user=request.user); form=ProfileForm(request.POST or None,instance=profile)
@@ -51,7 +52,7 @@ def edit_profile(request):
 def toggle_like(request,pk):
     post=get_object_or_404(Post,pk=pk); like,created=Like.objects.get_or_create(user=request.user,post=post)
     if not created: like.delete()
-    elif post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} вподобав вашу публікацію',kind='like')
+    elif post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} вподобав вашу публікацію',url=f'/u/{post.author.username}/',kind='like')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
@@ -59,7 +60,7 @@ def add_comment(request,pk):
     post=get_object_or_404(Post,pk=pk); form=CommentForm(request.POST)
     if form.is_valid():
         c=form.save(commit=False); c.post=post; c.user=request.user; c.save()
-        if post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} прокоментував вашу публікацію',kind='comment')
+        if post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} прокоментував вашу публікацію',url=f'/u/{post.author.username}/',kind='comment')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
@@ -67,7 +68,7 @@ def share_post(request,pk):
     original=get_object_or_404(Post,pk=pk)
     if original.shared_from: original=original.shared_from
     Post.objects.create(author=request.user,shared_from=original,body=request.POST.get('body',''))
-    if original.author!=request.user: create_notification(original.author,request.user,f'{request.user.username} поширив вашу публікацію',kind='like')
+    if original.author!=request.user: create_notification(original.author,request.user,f'{request.user.username} поширив вашу публікацію',url=f'/u/{original.author.username}/',kind='like')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
@@ -174,12 +175,29 @@ def notification_settings(request):
     return render(request,'network/notification_settings.html',{'form':form,'title':'Налаштування сповіщень'})
 @login_required
 def chats(request):
-    return render(request,'network/chats.html',{'conversations':request.user.conversations.all()})
+    items=[]
+    for c in request.user.conversations.prefetch_related('participants','messages__sender'):
+        last=c.messages.last()
+        if c.title: title=c.title
+        elif c.participants.count()==2: title='@'+next(u.username for u in c.participants.all() if u!=request.user)
+        else: title=f'Груповий чат · {c.participants.count()} учасників'
+        items.append({'chat':c,'title':title,'last':last})
+    items.sort(key=lambda i:i['last'].created_at if i['last'] else i['chat'].created_at,reverse=True)
+    return render(request,'network/chats.html',{'items':items})
 @login_required
 def conversation(request,pk):
     chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); form=MessageForm(request.POST or None)
     if form.is_valid(): m=form.save(commit=False);m.sender=request.user;m.conversation=chat;m.save();notify_message(m);return redirect('conversation',pk)
-    return render(request,'network/conversation.html',{'chat':chat,'form':form})
+    people=chat.participants.all()
+    title=chat.title or ('@'+next(u.username for u in people if u!=request.user) if people.count()==2 else 'Груповий чат')
+    return render(request,'network/conversation.html',{'chat':chat,'title':title,'people':people,'form':form})
+@login_required
+def start_chat(request,username):
+    other=get_object_or_404(User,username=username)
+    if other==request.user: return redirect('chats')
+    for c in Conversation.objects.filter(participants=request.user).filter(participants=other):
+        if c.participants.count()==2: return redirect('conversation',c.pk)
+    c=Conversation.objects.create(); c.participants.add(request.user,other); return redirect('conversation',c.pk)
 @login_required
 def conversation_create(request):
     friends=User.objects.filter(Q(received_friendships__sender=request.user,received_friendships__status='accepted')|Q(sent_friendships__receiver=request.user,sent_friendships__status='accepted')).exclude(pk=request.user.pk).distinct()
