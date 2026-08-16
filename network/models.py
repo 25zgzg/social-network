@@ -1,3 +1,4 @@
+import re
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
@@ -32,8 +33,21 @@ class Membership(models.Model):
     class Meta: constraints=[models.UniqueConstraint(fields=['user','group'],name='unique_membership')]
 
 class Post(models.Model):
-    author=models.ForeignKey(User,on_delete=models.CASCADE,related_name='posts'); group=models.ForeignKey(Group,on_delete=models.CASCADE,null=True,blank=True,related_name='posts'); body=models.TextField(); media_url=models.URLField(blank=True); created_at=models.DateTimeField(auto_now_add=True); updated_at=models.DateTimeField(auto_now=True)
+    author=models.ForeignKey(User,on_delete=models.CASCADE,related_name='posts'); group=models.ForeignKey(Group,on_delete=models.CASCADE,null=True,blank=True,related_name='posts'); body=models.TextField(); media_url=models.URLField(blank=True); shared_from=models.ForeignKey('self',null=True,blank=True,on_delete=models.CASCADE,related_name='shares'); created_at=models.DateTimeField(auto_now_add=True); updated_at=models.DateTimeField(auto_now=True)
     class Meta: ordering=['-created_at']
+    @property
+    def media_kind(self):
+        u=self.media_url
+        if not u: return ''
+        if self.youtube_embed_url: return 'youtube'
+        u=u.lower()
+        if u.endswith(('.png','.jpg','.jpeg','.gif','.webp')): return 'image'
+        if u.endswith(('.mp4','.webm','.ogg')): return 'video'
+        return 'link'
+    @property
+    def youtube_embed_url(self):
+        m=re.search(r'(?:youtube\.com/(?:watch\?.*?v=|shorts/)|youtu\.be/)([\w-]{11})',self.media_url)
+        return f'https://www.youtube.com/embed/{m.group(1)}' if m else ''
 class Like(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='likes')
     class Meta: constraints=[models.UniqueConstraint(fields=['user','post'],name='unique_like')]
