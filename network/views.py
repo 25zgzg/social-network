@@ -257,3 +257,16 @@ def set_theme(request):
     theme='dark' if request.POST.get('theme')=='dark' else 'light'
     profile,_=Profile.objects.get_or_create(user=request.user); profile.theme=theme; profile.save()
     return JsonResponse({'theme':theme})
+
+PRESETS={'violet':('Фіолет','#6757e8','#f5f6fa','#1a1e2a'),'ocean':('Океан','#0a7db6','#eef6fb','#0a1420'),'forest':('Ліс','#178a50','#f0f7f1','#0d1712'),'sunset':('Захід','#e0572a','#fdf4ee','#191014'),'mono':('Монохром','#1f2430','#f4f4f5','#000000')}
+
+@login_required
+def settings_page(request):
+    profile,_=Profile.objects.get_or_create(user=request.user)
+    if request.method=='POST':
+        theme=request.POST.get('theme') or 'auto'
+        palette=request.POST.get('palette') or 'violet'
+        profile.theme=theme if theme in ('auto','light','dark') else 'auto'
+        profile.palette=palette if palette in PRESETS else 'violet'
+        profile.save(); return redirect('settings')
+    return render(request,'network/settings.html',{'profile':profile,'presets':PRESETS,'notif_setting':NotificationSetting.objects.filter(user=request.user).first()})

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}{% block title %}Налаштування · UASocial{% endblock %}{% block content %}<div class="narrow"><h1><i class="bi bi-sliders" aria-hidden="true"></i> Налаштування</h1>
+<div class="settings-tabs"><a class="active" href="{% url 'settings' %}"><i class="bi bi-palette" aria-hidden="true"></i> Персоналізація</a><a href="{% url 'notification_settings' %}"><i class="bi bi-bell" aria-hidden="true"></i> Сповіщення</a></div>
+
+<form method="post" id="settings-form">{% csrf_token %}
+<div class="card"><h2><i class="bi bi-circle-half" aria-hidden="true"></i> Режим теми</h2>
+<div class="d-flex gap-3 flex-wrap">
+{% for value,label in profile.THEMES %}<label class="d-flex align-items-center gap-2"><input type="radio" name="theme" value="{{value}}" {% if profile.theme == value %}checked{% endif %} onchange="preview()">{{label}}</label>{% endfor %}
+</div><small class="text-muted">«Як у системі» — тема пристрою (світла чи темна) визначається автоматично.</small></div>
+
+<div class="card"><h2><i class="bi bi-palette" aria-hidden="true"></i> Кольорова палітра</h2>
+<p class="text-muted">Кожен пресет має світлу і темну версію — перемикач теми змінює тільки варіант, палітра лишається.</p>
+<div class="d-flex gap-3 flex-wrap">
+{% for slug,info in presets.items %}<label class="preset-card {% if profile.palette == slug %}active{% endif %}" data-preset="{{slug}}"><span class="preset-dots"><span style="background:{{info.1}}"></span><span style="background:{{info.2}}"></span><span style="background:{{info.3}}"></span></span><input type="radio" name="palette" value="{{slug}}" {% if profile.palette == slug %}checked{% endif %} onchange="preview()"> {{info.0}}</label>{% endfor %}
+</div></div>
+
+<button class="button btn btn-primary"><i class="bi bi-check-lg" aria-hidden="true"></i> Зберегти</button>
+</form></div>
+
+<script>
+function preview(){
+	var f=document.getElementById('settings-form');
+	var theme=f.querySelector('input[name=theme]:checked').value;
+	var palette=f.querySelector('input[name=palette]:checked').value;
+	document.documentElement.setAttribute('data-palette',palette);
+	if(theme==='auto'){var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;theme=dark?'dark':'light';}
+	document.documentElement.setAttribute('data-theme',theme);
+	document.querySelectorAll('.preset-card').forEach(function(c){c.classList.toggle('active',c.dataset.preset===palette);});
+}
+</script>
+{% endblock %}
