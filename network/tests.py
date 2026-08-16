@@ -339,3 +339,20 @@ class ThemeSystemTests(TestCase):
  def test_nav_has_tooltips_and_user_menu(self):
   html=self.client.get(reverse('feed')).content.decode()
   self.assertIn('data-tip="Стрічка"',html);self.assertIn('user-dropdown',html);self.assertIn('Мій профіль',html)
+
+class PaletteSettingsTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+ def test_settings_page_shows_all_presets(self):
+  r=self.client.get(reverse('settings'));self.assertEqual(r.status_code,200)
+  for name in ('Фіолет','Океан','Ліс','Захід','Монохром'):self.assertContains(r,name)
+  self.assertContains(r,'Як у системі')
+ def test_post_saves_theme_and_palette(self):
+  self.client.post(reverse('settings'),{'theme':'dark','palette':'ocean'})
+  p=Profile.objects.get(user=self.user);self.assertEqual(p.theme,'dark');self.assertEqual(p.palette,'ocean')
+ def test_post_rejects_garbage(self):
+  self.client.post(reverse('settings'),{'theme':'hacker','palette':'neon'})
+  p=Profile.objects.get(user=self.user);self.assertEqual(p.theme,'auto');self.assertEqual(p.palette,'violet')
+ def test_base_renders_palette_attribute(self):
+  Profile.objects.filter(user=self.user).update(palette='sunset')
+  html=self.client.get(reverse('feed')).content.decode();self.assertIn('data-palette="sunset"',html)
