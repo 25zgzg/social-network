@@ -347,12 +347,12 @@ class PaletteSettingsTests(TestCase):
   r=self.client.get(reverse('settings'));self.assertEqual(r.status_code,200)
   for name in ('Фіолет','Океан','Ліс','Захід','Монохром'):self.assertContains(r,name)
   self.assertContains(r,'Як у системі')
- def test_post_saves_theme_and_palette(self):
-  self.client.post(reverse('settings'),{'theme':'dark','palette':'ocean'})
+ def test_autosave_endpoint_saves_theme_and_palette(self):
+  self.client.post(reverse('set_theme'),{'theme':'dark','palette':'ocean'})
   p=Profile.objects.get(user=self.user);self.assertEqual(p.theme,'dark');self.assertEqual(p.palette,'ocean')
- def test_post_rejects_garbage(self):
-  self.client.post(reverse('settings'),{'theme':'hacker','palette':'neon'})
-  p=Profile.objects.get(user=self.user);self.assertEqual(p.theme,'auto');self.assertEqual(p.palette,'violet')
+ def test_autosave_rejects_garbage(self):
+  self.client.post(reverse('set_theme'),{'theme':'hacker','palette':'neon'})
+  p=Profile.objects.get(user=self.user);self.assertEqual(p.theme,'light');self.assertEqual(p.palette,'violet')
  def test_base_renders_palette_attribute(self):
   Profile.objects.filter(user=self.user).update(palette='sunset')
   html=self.client.get(reverse('feed')).content.decode();self.assertIn('data-palette="sunset"',html)
