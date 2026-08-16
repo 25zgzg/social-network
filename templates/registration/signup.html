@@ -1,1 +1,19 @@
-{% extends 'base.html' %}{% block content %}<div class="auth card"><h1>Реєстрація</h1><form method="post">{% csrf_token %}{{form.as_p}}<button class="button btn btn-primary">Створити акаунт</button></form><p class="auth-foot">Вже маєте акаунт? <a href="{% url 'account_login' %}">Увійти</a></p></div>{% endblock %}
+{% extends 'base.html' %}{% block content %}<div class="auth card"><h1>Реєстрація</h1><form method="post">{% csrf_token %}{{form.as_p}}<button class="button btn btn-primary">Створити акаунт</button></form><p class="auth-foot">Вже маєте акаунт? <a href="{% url 'account_login' %}">Увійти</a></p></div>
+<script>
+(function(){
+	var input=document.querySelector('input[name="username"]');if(!input)return;
+	var status=document.createElement('small');status.className='username-status';input.closest('p').appendChild(status);
+	var timer=null;
+	input.addEventListener('input',function(){
+		clearTimeout(timer);var q=input.value.trim();
+		if(q.length<3){status.textContent='';return;}
+		timer=setTimeout(function(){
+			fetch('{% url "check_username" %}?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(d){
+				if(d.available){status.textContent='✓ '+q+' вільний';status.className='username-status ok';}
+				else{status.textContent='✗ '+q+' уже зайнятий';status.className='username-status bad';}
+			}).catch(function(){status.textContent='';});
+		},350);
+	});
+})();
+</script>
+{% endblock %}
