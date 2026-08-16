@@ -1,1 +1,49 @@
-{% extends 'base.html' %}{% block content %}<div class="narrow"><h1>{{chat.title|default:'Чат'}}</h1><div class="card messages">{% for m in chat.messages.all %}<p><b>@{{m.sender.username}}</b> {{m.body}} <small>{{m.created_at|time:'H:i'}}</small></p>{% empty %}<p>Почніть розмову.</p>{% endfor %}</div><form class="inline card" method="post">{% csrf_token %}{{form.body}}<button class="button">Надіслати</button></form></div>{% endblock %}
+{% extends 'base.html' %}
+{% block content %}
+<div class="narrow">
+	<h1>{{chat.title|default:'Чат'}}</h1>
+	<div class="card messages">{% for m in chat.messages.all %}
+		<p><b>@{{m.sender.username}}</b> {{m.body}} <small>{{m.created_at|time:'H:i'}}</small></p>
+	{% empty %}
+		<p>Почніть розмову.</p>
+	{% endfor %}</div>
+
+	<form class="inline card" method="post">
+		{% csrf_token %}
+		{{form.body}}
+		<button class="button">Надіслати</button>
+	</form>
+</div>
+
+<script>
+(function(){
+	const roomName = "{{chat.pk}}";
+	const messagesContainer = document.querySelector('.messages');
+	const form = document.querySelector('form.inline.card');
+	const input = form.querySelector('textarea, input[name="body"]');
+	const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+	const chatSocket = new WebSocket(`${wsScheme}://${window.location.host}/ws/chat/${roomName}/`);
+
+	chatSocket.onmessage = function(e){
+		try{
+			const data = JSON.parse(e.data);
+			const m = data.message;
+			const p = document.createElement('p');
+			p.innerHTML = `<b>@${m.sender}</b> ${m.body} <small>${m.created_at}</small>`;
+			messagesContainer.appendChild(p);
+			messagesContainer.scrollTop = messagesContainer.scrollHeight;
+		}catch(err){ console.error('WS parse', err); }
+	};
+	chatSocket.onclose = function(e){ console.warn('Chat socket closed'); };
+
+	form.addEventListener('submit', function(e){
+		e.preventDefault();
+		const val = input.value.trim();
+		if(!val) return;
+		chatSocket.send(JSON.stringify({message: val}));
+		input.value = '';
+	});
+})();
+</script>
+
+{% endblock %}
