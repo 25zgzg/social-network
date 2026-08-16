@@ -30,7 +30,9 @@ def feed(request):
 @login_required
 def profile(request,username):
     user=get_object_or_404(User,username=username); Profile.objects.get_or_create(user=user)
-    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.all(),'is_following':Follow.objects.filter(follower=request.user,target=user).exists()})
+    fs=Friendship.objects.filter(Q(sender=request.user,receiver=user)|Q(sender=user,receiver=request.user)).first()
+    state='friend' if fs and fs.status=='accepted' else 'incoming' if fs and fs.sender==user else 'outgoing' if fs else 'none'
+    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.all(),'is_following':Follow.objects.filter(follower=request.user,target=user).exists(),'friend_state':state})
 @login_required
 def edit_profile(request):
     profile,_=Profile.objects.get_or_create(user=request.user); form=ProfileForm(request.POST or None,instance=profile)
@@ -57,7 +59,8 @@ def follow(request,username):
     target=get_object_or_404(User,username=username)
     if target!=request.user:
         obj,created=Follow.objects.get_or_create(follower=request.user,target=target)
-        if not created: obj.delete()
+        if created: Notification.objects.create(recipient=target,actor=request.user,text=f'@{request.user.username} підписався на вас',url=f'/u/{request.user.username}/')
+        else: obj.delete()
     return redirect('profile',username)
 @login_required
 def create_group(request):
@@ -103,11 +106,20 @@ def chat_upload(request,pk):
     return redirect('conversation',pk)
 @login_required
 def friend_requests(request):
-    return render(request,'network/friends.html',{'requests':request.user.received_friendships.filter(status='pending')})
+    incoming=request.user.received_friendships.filter(status='pending').select_related('sender')
+    outgoing=request.user.sent_friendships.filter(status='pending').select_related('receiver')
+    accepted=Friendship.objects.filter(Q(sender=request.user,status='accepted')|Q(receiver=request.user,status='accepted')).select_related('sender','receiver')
+    friends=[(f.receiver if f.sender==request.user else f.sender) for f in accepted]
+    return render(request,'network/friends.html',{'incoming':incoming,'outgoing':outgoing,'friends':friends})
 @login_required
 @require_POST
 def friend_action(request,username):
-    target=get_object_or_404(User,username=username); pending=Friendship.objects.filter(sender=target,receiver=request.user,status='pending').first()
-    if pending: pending.status='accepted';pending.save()
-    elif target!=request.user: Friendship.objects.get_or_create(sender=request.user,receiver=target)
-    return redirect('profile',username)
+    target=get_object_or_404(User,username=username); action=request.POST.get('action') or 'send'; incoming=Friendship.objects.filter(sender=target,receiver=request.user).first(); outgoing=Friendship.objects.filter(sender=request.user,receiver=target).first()
+    if action in('accept','send') and incoming and incoming.status=='pending':
+        incoming.status='accepted';incoming.save();Notification.objects.create(recipient=target,actor=request.user,text=f'@{request.user.username} прийняв ваш запит у друзі',url=f'/u/{request.user.username}/')
+    elif action=='reject': Friendship.objects.filter(sender=target,receiver=request.user,status='pending').delete()
+    elif action=='cancel': Friendship.objects.filter(sender=request.user,receiver=target,status='pending').delete()
+    elif action=='remove': Friendship.objects.filter(Q(sender=request.user,receiver=target)|Q(sender=target,receiver=request.user),status='accepted').delete()
+    elif action=='send' and target!=request.user and not incoming and not outgoing:
+        Friendship.objects.create(sender=request.user,receiver=target);Notification.objects.create(recipient=target,actor=request.user,text=f'@{request.user.username} надіслав вам запит у друзі',url='/friends/')
+    return redirect(request.META.get('HTTP_REFERER') or f'/u/{username}/')
