@@ -3,6 +3,33 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from .models import Conversation, Friendship, Group, Membership, Post, Profile
+class ShareFeedTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+ def test_share_creates_post_linked_to_original(self):
+  orig=Post.objects.create(author=self.other,body='Оригінал')
+  self.assertEqual(self.client.post(reverse('share',args=[orig.pk]),{'body':'Гарна думка'}).status_code,302)
+  sh=Post.objects.get(body='Гарна думка');self.assertEqual(sh.author,self.user);self.assertEqual(sh.shared_from,orig);self.assertEqual(self.other.notifications.count(),1)
+ def test_shared_post_renders_marker(self):
+  orig=Post.objects.create(author=self.other,body='Оригінал')
+  self.client.post(reverse('share',args=[orig.pk]),{})
+  self.assertTrue(Post.objects.filter(shared_from=orig).exists())
+  content=self.client.get(reverse('feed')).content.decode();self.assertIn('поширив',content);self.assertIn('share-quote',content)
+ def test_media_kinds(self):
+  self.assertEqual(Post.objects.create(author=self.user,body='x',media_url='https://a.com/pic.PNG').media_kind,'image')
+  self.assertEqual(Post.objects.create(author=self.user,body='x',media_url='https://a.com/clip.mp4').media_kind,'video')
+  yt=Post.objects.create(author=self.user,body='x',media_url='https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  self.assertEqual(yt.media_kind,'youtube');self.assertEqual(yt.youtube_embed_url,'https://www.youtube.com/embed/dQw4w9WgXcQ')
+  self.assertEqual(Post.objects.create(author=self.user,body='x',media_url='https://youtu.be/dQw4w9WgXcQ?t=1').youtube_embed_url,'https://www.youtube.com/embed/dQw4w9WgXcQ')
+  self.assertEqual(Post.objects.create(author=self.user,body='x',media_url='https://a.com/page').media_kind,'link')
+  self.assertEqual(Post.objects.create(author=self.user,body='x').media_kind,'')
+ def test_home_scope(self):
+  stranger=User.objects.create_user('stranger',password='strong-pass-123');Profile.objects.create(user=stranger)
+  Friendship.objects.create(sender=self.user,receiver=self.other,status='accepted')
+  Post.objects.create(author=self.other,body='friend-body');Post.objects.create(author=stranger,body='stranger-body')
+  content=self.client.get(reverse('home')).content.decode();self.assertIn('friend-body',content);self.assertNotIn('stranger-body',content)
+  self.client.logout();content=self.client.get(reverse('home')).content.decode();self.assertIn('friend-body',content);self.assertIn('stranger-body',content)
 class SocialTests(TestCase):
  def setUp(self):
   self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')

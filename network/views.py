@@ -9,8 +9,15 @@ from channels.layers import get_channel_layer
 from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, PostForm, ProfileForm, RatingForm, SignupForm
 from .models import Conversation, Follow, Friendship, Group, Like, Membership, Message, Notification, Post, Profile, Rating, message_payload, notify_message
 
+def visible_posts(user):
+    """Пости видимі користувачу: власні, друзів (accepted), підписок та спільнот, де він учасник."""
+    pairs=Friendship.objects.filter(Q(sender=user,status='accepted')|Q(receiver=user,status='accepted')).values_list('sender_id','receiver_id')
+    ids={user.id}; [ids.update(pair) for pair in pairs]
+    followed=Follow.objects.filter(follower=user).values_list('target_id',flat=True)
+    return Post.objects.filter(Q(author_id__in=ids|set(followed))|Q(group__members=user)).distinct()
 def home(request):
-    posts=Post.objects.select_related('author','group').annotate(like_count=Count('likes'))[:30]
+    qs=visible_posts(request.user) if request.user.is_authenticated else Post.objects.all()
+    posts=qs.select_related('author','group','shared_from__author','shared_from__group').annotate(like_count=Count('likes'))[:30]
     return render(request,'network/home.html',{'posts':posts,'groups':Group.objects.annotate(member_count=Count('members')).order_by('-member_count')[:5]})
 def signup(request):
     form=SignupForm(request.POST or None)
@@ -22,10 +29,7 @@ def feed(request):
     form=PostForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         p=form.save(commit=False); p.author=request.user; p.save(); return redirect('feed')
-    pairs=Friendship.objects.filter(Q(sender=request.user,status='accepted')|Q(receiver=request.user,status='accepted')).values_list('sender_id','receiver_id')
-    ids={request.user.id}; [ids.update(pair) for pair in pairs]
-    followed=Follow.objects.filter(follower=request.user).values_list('target_id',flat=True)
-    posts=Post.objects.filter(Q(author_id__in=ids|set(followed))|Q(group__members=request.user)).distinct()
+    posts=visible_posts(request.user).select_related('author','group','shared_from__author','shared_from__group')
     return render(request,'network/feed.html',{'posts':posts,'form':form})
 @login_required
 def profile(request,username):
@@ -50,6 +54,14 @@ def add_comment(request,pk):
     if form.is_valid():
         c=form.save(commit=False); c.post=post; c.user=request.user; c.save()
         if post.author!=request.user: Notification.objects.create(recipient=post.author,actor=request.user,text=f'{request.user.username} прокоментував вашу публікацію')
+    return redirect(request.META.get('HTTP_REFERER','feed'))
+@login_required
+@require_POST
+def share_post(request,pk):
+    original=get_object_or_404(Post,pk=pk)
+    if original.shared_from: original=original.shared_from
+    Post.objects.create(author=request.user,shared_from=original,body=request.POST.get('body',''))
+    if original.author!=request.user: Notification.objects.create(recipient=original.author,actor=request.user,text=f'{request.user.username} поширив вашу публікацію')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
