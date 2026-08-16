@@ -1,8 +1,78 @@
+# === Python / Byte-compiled ===
 __pycache__/
 *.py[cod]
-*.sqlite3
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sast/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === Virtual Environments & Package Managers ===
 .env
+.env.*
+!.env.example
 .venv/
-media/*
+venv/
+ENV/
+env/
+poetry.lock
+Pipfile.lock
+
+# === Django Specific ===
+*.sqlite3
+*.db
+*.sqlite
+*.sqlite3-journal
+local_settings.py
+db.sqlite3-journal
+media/
 !media/.gitkeep
 staticfiles/
+media_root/
+
+# === Testing & Coverage ===
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+ТЗ Соціальна мережа.pdf
+# === IDEs, Editors & OS Files ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# === Docker & Deployment ===
+.docker/
+docker-compose.override.yml
