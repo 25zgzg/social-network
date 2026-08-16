@@ -17,6 +17,9 @@ class Profile(models.Model):
     location = models.CharField(max_length=80, blank=True)
     status = models.CharField(max_length=120, blank=True)
     theme = models.CharField(max_length=10, choices=THEMES, default=AUTO)
+    VIOLET='violet'; OCEAN='ocean'; FOREST='forest'; SUNSET='sunset'; MONO='mono'
+    PALETTES=[(VIOLET,'Фіолет'),(OCEAN,'Океан'),(FOREST,'Ліс'),(SUNSET,'Захід'),(MONO,'Монохром')]
+    palette = models.CharField(max_length=10, choices=PALETTES, default=VIOLET)
     def __str__(self): return self.user.username
 
 class Friendship(models.Model):

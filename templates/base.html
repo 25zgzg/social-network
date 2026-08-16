@@ -1,5 +1,5 @@
 {% load static %}<!doctype html>
-<html lang="uk" {% if user.is_authenticated and user.profile.theme and user.profile.theme != 'auto' %}data-theme="{{ user.profile.theme }}"{% endif %}>
+<html lang="uk" {% if user.is_authenticated %}data-palette="{{ user.profile.palette|default:'violet' }}"{% if user.profile.theme and user.profile.theme != 'auto' %} data-theme="{{ user.profile.theme }}"{% endif %}{% endif %}>
 <script>
 (function(){
 	if(document.documentElement.getAttribute('data-theme'))return;
@@ -26,7 +26,7 @@
 <button class="link" id="theme-toggle" data-tip="Світла / темна тема" aria-label="Змінити тему"><i class="bi bi-moon-stars" aria-hidden="true"></i></button>
 <div class="navlinks d-flex align-items-center flex-wrap">{% if user.is_authenticated %}<a href="{% url 'feed' %}" data-tip="Стрічка"><i class="bi bi-newspaper" aria-hidden="true"></i></a><a href="{% url 'friends' %}" data-tip="Друзі"><i class="bi bi-people" aria-hidden="true"></i></a><a href="{% url 'chats' %}" data-tip="Чати"><i class="bi bi-chat-dots" aria-hidden="true"></i></a><a href="{% url 'groups' %}" data-tip="Групи"><i class="bi bi-collection" aria-hidden="true"></i></a><a href="{% url 'notifications' %}" id="nav-notifications" data-tip="Сповіщення"><i class="bi bi-bell" aria-hidden="true"></i><span class="notif-badge" hidden></span></a>
 <div class="user-menu" data-tip="Ваш профіль"><button class="user-chip" type="button"><span class="nav-avatar">{% if user.profile.avatar %}<img src="{{ user.profile.avatar }}" alt="">{% else %}{{ user.username|first|upper }}{% endif %}</span><span class="user-name">{{ user.username }}</span><i class="bi bi-chevron-down" aria-hidden="true"></i></button>
-<div class="user-dropdown"><a href="{% url 'profile' user.username %}"><i class="bi bi-person" aria-hidden="true"></i> Мій профіль</a><a href="{% url 'edit_profile' %}"><i class="bi bi-pencil-square" aria-hidden="true"></i> Редагувати профіль</a><a href="{% url 'notification_settings' %}"><i class="bi bi-sliders" aria-hidden="true"></i> Налаштування</a><form action="{% url 'account_logout' %}" method="post">{% csrf_token %}<button type="submit"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> Вийти</button></form></div>
+<div class="user-dropdown"><a href="{% url 'profile' user.username %}"><i class="bi bi-person" aria-hidden="true"></i> Мій профіль</a><a href="{% url 'edit_profile' %}"><i class="bi bi-pencil-square" aria-hidden="true"></i> Редагувати профіль</a><a href="{% url 'settings' %}"><i class="bi bi-sliders" aria-hidden="true"></i> Налаштування</a><form action="{% url 'account_logout' %}" method="post">{% csrf_token %}<button type="submit"><i class="bi bi-box-arrow-right" aria-hidden="true"></i> Вийти</button></form></div>
 </div>
 {% else %}<a class="button btn btn-primary" href="{% url 'account_login' %}"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Увійти</a>{% endif %}</div>
 </div>
