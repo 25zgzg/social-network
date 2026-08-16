@@ -1,7 +1,7 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from .models import Conversation, message_payload, notify_message
+from .models import Conversation, Notification, message_payload, notify_message
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -55,3 +55,28 @@ class ChatConsumer(AsyncWebsocketConsumer):
         msg = conv.messages.create(sender=sender, body=message_text)
         notify_message(msg)
         return message_payload(msg)
+
+
+class NotificationsConsumer(AsyncWebsocketConsumer):
+    """Реальний час: пуш сповіщень у персональну групу користувача user_<id>."""
+
+    async def connect(self):
+        user = self.scope.get('user')
+        if user is None or not user.is_authenticated:
+            await self.close()
+            return
+        self.group_name = f'user_{user.id}'
+        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
+        await self.send(text_data=json.dumps({'unread': await self.unread_count()}))
+
+    async def disconnect(self, close_code):
+        if hasattr(self, 'group_name'):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+
+    @database_sync_to_async
+    def unread_count(self):
+        return Notification.objects.filter(recipient=self.scope['user'], is_read=False).count()
+
+    async def notify(self, event):
+        await self.send(text_data=json.dumps({'text': event.get('text', ''), 'url': event.get('url', ''), 'unread': event.get('unread', 0)}))

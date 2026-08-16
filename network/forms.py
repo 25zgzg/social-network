@@ -1,7 +1,7 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import UserCreationForm
-from .models import Comment, Group, Message, Post, Profile, Rating
+from .models import Comment, Group, Message, NotificationSetting, Post, Profile, Rating
 
 User=get_user_model()
 class SignupForm(UserCreationForm):
@@ -22,3 +22,7 @@ class ConversationForm(forms.Form):
     participants=forms.ModelMultipleChoiceField(queryset=User.objects.none(),label='Учасники',help_text='Оберіть друзів — можна кількох для групового чату')
 class RatingForm(forms.ModelForm):
     class Meta: model=Rating; fields=('value','review'); widgets={'value':forms.NumberInput(attrs={'min':1,'max':5})}
+class NotificationSettingForm(forms.ModelForm):
+    class Meta:
+        model=NotificationSetting; fields=('on_like','on_comment','on_friend','on_follow','on_message')
+        labels={'on_like':'Лайки та поширення публікацій','on_comment':'Коментарі','on_friend':'Запити в друзі','on_follow':'Нові підписники','on_message':'Нові повідомлення в чатах'}
