@@ -232,3 +232,28 @@ def friend_action(request,username):
     elif action=='send' and target!=request.user and not incoming and not outgoing:
         Friendship.objects.create(sender=request.user,receiver=target);create_notification(target,request.user,f'@{request.user.username} надіслав вам запит у друзі','/friends/',kind='friend')
     return redirect(request.META.get('HTTP_REFERER') or f'/u/{username}/')
+
+def check_username(request):
+    q=request.GET.get('q','').strip()
+    taken=User.objects.filter(username__iexact=q).exists()
+    from django.http import JsonResponse
+    return JsonResponse({'available':bool(q) and not taken})
+
+@login_required
+def search(request):
+    q=request.GET.get('q','').strip(); users=[]; groups=[]
+    if q:
+        users=list(User.objects.filter(Q(username__icontains=q)|Q(first_name__icontains=q)|Q(last_name__icontains=q)).exclude(pk=request.user.pk).select_related('profile')[:20])
+        friend_ids={f.pk for f in users if Friendship.objects.filter(Q(sender=request.user,receiver=f,status='accepted')|Q(sender=f,receiver=request.user,status='accepted')).exists()}
+        groups=Group.objects.filter(name__icontains=q).annotate(member_count=Count('members'))[:20]
+    else:
+        friend_ids=set()
+    return render(request,'network/search.html',{'q':q,'users':users,'friend_ids':friend_ids,'groups':groups})
+
+@login_required
+@require_POST
+def set_theme(request):
+    from django.http import JsonResponse
+    theme='dark' if request.POST.get('theme')=='dark' else 'light'
+    profile,_=Profile.objects.get_or_create(user=request.user); profile.theme=theme; profile.save()
+    return JsonResponse({'theme':theme})
