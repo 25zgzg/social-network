@@ -77,3 +77,65 @@ class FriendshipTests(TestCase):
  def test_follow_notifies_only_on_create(self):
   self.client.post(reverse('follow',args=['olia']));self.assertEqual(self.other.notifications.count(),1);self.assertIn('підписався',self.other.notifications.first().text)
   self.client.post(reverse('follow',args=['olia']));self.assertEqual(self.other.notifications.count(),1)
+class GroupModerationTests(TestCase):
+ def setUp(self):
+  self.owner=User.objects.create_user('owner',password='strong-pass-123');Profile.objects.create(user=self.owner)
+  self.admin=User.objects.create_user('admin',password='strong-pass-123');Profile.objects.create(user=self.admin)
+  self.admin2=User.objects.create_user('admin2',password='strong-pass-123');Profile.objects.create(user=self.admin2)
+  self.member=User.objects.create_user('member',password='strong-pass-123');Profile.objects.create(user=self.member)
+  self.group=Group.objects.create(name='Python',description='Dev',owner=self.owner)
+  Membership.objects.create(group=self.group,user=self.owner,is_admin=True);Membership.objects.create(group=self.group,user=self.admin,is_admin=True);Membership.objects.create(group=self.group,user=self.admin2,is_admin=True)
+  Membership.objects.create(group=self.group,user=self.member)
+  self.member_post=Post.objects.create(author=self.member,group=self.group,body='spam');self.admin_post=Post.objects.create(author=self.admin,group=self.group,body='важливе')
+ def _login(self,user): self.client.login(username=user.username,password='strong-pass-123')
+ def test_groups_list_renders_and_search_filters(self):
+  Group.objects.create(name='Django',description='web',owner=self.owner);self._login(self.member)
+  r=self.client.get(reverse('groups'));self.assertEqual(r.status_code,200);self.assertContains(r,'Python');self.assertContains(r,'Django');self.assertContains(r,'учасників')
+  r=self.client.get(reverse('groups'),{'q':'pyth'});self.assertContains(r,'>Python<');self.assertNotContains(r,'>Django<')
+ def test_leave_group_removes_membership(self):
+  self._login(self.member);self.client.post(reverse('leave_group',args=[self.group.pk]))
+  self.assertFalse(Membership.objects.filter(group=self.group,user=self.member).exists())
+ def test_owner_cannot_leave(self):
+  self._login(self.owner);r=self.client.post(reverse('leave_group',args=[self.group.pk]))
+  self.assertEqual(r.status_code,302);self.assertTrue(Membership.objects.filter(group=self.group,user=self.owner).exists())
+ def test_admin_can_delete_any_post(self):
+  self._login(self.admin);self.client.post(reverse('group_delete_post',args=[self.group.pk,self.member_post.pk]))
+  self.assertFalse(Post.objects.filter(pk=self.member_post.pk).exists())
+ def test_member_cannot_delete_others_post(self):
+  self._login(self.member);r=self.client.post(reverse('group_delete_post',args=[self.group.pk,self.admin_post.pk]))
+  self.assertEqual(r.status_code,404);self.assertTrue(Post.objects.filter(pk=self.admin_post.pk).exists())
+ def test_author_can_delete_own_post(self):
+  self._login(self.member);self.client.post(reverse('group_delete_post',args=[self.group.pk,self.member_post.pk]))
+  self.assertFalse(Post.objects.filter(pk=self.member_post.pk).exists())
+ def test_admin_can_kick_member(self):
+  self._login(self.admin);self.client.post(reverse('group_kick_member',args=[self.group.pk,self.member.pk]))
+  self.assertFalse(Membership.objects.filter(group=self.group,user=self.member).exists())
+ def test_admin_cannot_kick_owner(self):
+  self._login(self.admin);r=self.client.post(reverse('group_kick_member',args=[self.group.pk,self.owner.pk]))
+  self.assertEqual(r.status_code,404);self.assertTrue(Membership.objects.filter(group=self.group,user=self.owner).exists())
+ def test_admin_cannot_kick_another_admin(self):
+  self._login(self.admin);r=self.client.post(reverse('group_kick_member',args=[self.group.pk,self.admin2.pk]))
+  self.assertEqual(r.status_code,404);self.assertTrue(Membership.objects.filter(group=self.group,user=self.admin2).exists())
+ def test_owner_can_kick_admin(self):
+  self._login(self.owner);self.client.post(reverse('group_kick_member',args=[self.group.pk,self.admin2.pk]))
+  self.assertFalse(Membership.objects.filter(group=self.group,user=self.admin2).exists())
+ def test_owner_toggles_admin(self):
+  self._login(self.owner);self.client.post(reverse('group_toggle_admin',args=[self.group.pk,self.member.pk]))
+  self.assertTrue(Membership.objects.get(group=self.group,user=self.member).is_admin)
+  self.client.post(reverse('group_toggle_admin',args=[self.group.pk,self.member.pk]));self.assertFalse(Membership.objects.get(group=self.group,user=self.member).is_admin)
+ def test_non_owner_cannot_toggle_admin(self):
+  self._login(self.admin);r=self.client.post(reverse('group_toggle_admin',args=[self.group.pk,self.member.pk]))
+  self.assertEqual(r.status_code,404);self.assertFalse(Membership.objects.get(group=self.group,user=self.member).is_admin)
+ def test_non_member_cannot_moderate(self):
+  stranger=User.objects.create_user('stranger',password='strong-pass-123');Profile.objects.create(user=stranger);self._login(stranger)
+  self.assertEqual(self.client.post(reverse('group_delete_post',args=[self.group.pk,self.member_post.pk])).status_code,404)
+  self.assertEqual(self.client.post(reverse('group_kick_member',args=[self.group.pk,self.member.pk])).status_code,404)
+  self.assertEqual(self.client.post(reverse('group_toggle_admin',args=[self.group.pk,self.member.pk])).status_code,404)
+ def test_group_page_shows_moderation_controls_for_admin(self):
+  self._login(self.admin);r=self.client.get(reverse('group_detail',args=[self.group.pk]))
+  self.assertContains(r,'Вигнати');self.assertContains(r,'Видалити');self.assertContains(r,'Покинути групу')
+  self._login(self.member);r=self.client.get(reverse('group_detail',args=[self.group.pk]))
+  self.assertNotContains(r,'Вигнати');self.assertNotContains(r,'Зробити адміном')
+ def test_group_page_shows_toggle_admin_only_for_owner(self):
+  self._login(self.owner);self.assertContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
+  self._login(self.admin);self.assertNotContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
