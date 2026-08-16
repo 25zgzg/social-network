@@ -166,3 +166,5 @@ class GroupModerationTests(TestCase):
  def test_group_page_shows_toggle_admin_only_for_owner(self):
   self._login(self.owner);self.assertContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
   self._login(self.admin);self.assertNotContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
+ def test_profile_page_renders_friend_button(self):
+  r=self.client.get(reverse('profile',args=['olia']));self.assertEqual(r.status_code,200);self.assertContains(r,'Додати в друзі')
