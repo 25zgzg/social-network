@@ -32,7 +32,7 @@ docker compose exec web python manage.py createsuperuser
 - `network/views.py`, `forms.py`, `urls.py` — серверна бізнес-логіка, CSRF-захищені форми й контроль доступу.
 - `network/consumers.py` + `routing.py` — WebSocket-чат (авторизація учасників, збереження повідомлень, сповіщення).
 - `network/adapters.py` — allauth-адаптер Google (автоматичний Profile + аватарка).
-- `templates/`, `static/css/` — адаптивний frontend з мінімальним JS (WebSocket-клієнт чату).
+- `templates/`, `static/css/` — адаптивний frontend: Bootstrap 5 + Bootstrap Icons + власні стилі; мінімальний JS (WebSocket-клієнти чату й сповіщень).
 - SQLite для розробки; для production рекомендовано PostgreSQL.
 
 ## Перевірка
