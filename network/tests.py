@@ -356,3 +356,17 @@ class PaletteSettingsTests(TestCase):
  def test_base_renders_palette_attribute(self):
   Profile.objects.filter(user=self.user).update(palette='sunset')
   html=self.client.get(reverse('feed')).content.decode();self.assertIn('data-palette="sunset"',html)
+
+class FooterDarkTests(TestCase):
+ def test_footer_has_no_educational_label(self):
+  u=User.objects.create_user('x',password='strong-pass-123');Profile.objects.create(user=u)
+  from django.test import Client
+  c=Client(); c.force_login(u)
+  html=c.get(reverse('feed')).content.decode()
+  self.assertNotIn('навчальний',html);self.assertIn('UASocial</footer>',html)
+ def test_dark_mode_sets_bootstrap_theme(self):
+  u=User.objects.create_user('x',password='strong-pass-123');Profile.objects.create(user=u)
+  from django.test import Client
+  Profile.objects.filter(user=u).update(theme='dark')
+  c=Client(); c.force_login(u)
+  self.assertIn('data-bs-theme="dark"',c.get(reverse('feed')).content.decode())
