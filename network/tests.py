@@ -213,7 +213,6 @@ class RatingTests(TestCase):
   Follow.objects.create(follower=self.staff,target=self.user)
   self.client.logout();self.client.login(username='moderator',password='strong-pass-123')
   self.assertIn('Сховати',self.client.get(reverse('feed')).content.decode())
-=======
 @override_settings(CHANNEL_LAYERS={'default':{'BACKEND':'channels.layers.InMemoryChannelLayer'}})
 class NotificationSettingsTests(TestCase):
  def setUp(self):
