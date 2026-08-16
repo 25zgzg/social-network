@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="narrow">
-	<h1>{{chat.title|default:'Чат'}}</h1>
+	<a class="text-muted" href="{% url 'chats' %}"><i class="bi bi-arrow-left" aria-hidden="true"></i> Чати</a><h1>{{title}}</h1><p class="text-muted">{% for u in people %}<a href="{% url 'profile' u.username %}">@{{u.username}}</a>{% if not forloop.last %}, {% endif %}{% endfor %}</p>
 	<div class="card messages">{% for m in chat.messages.all %}
 		<p class="{% if m.sender_id == user.id %}own{% else %}other{% endif %}"><span class="msg-avatar" aria-hidden="true">{{m.sender.username|first|upper}}</span><b>@{{m.sender.username}}</b> {{m.body}} {% if m.attachment %}{% if m.is_image %}<img class="chat-img" src="{{m.attachment.url}}" alt="{{m.attachment_name}}">{% else %}<a href="{{m.attachment.url}}">📎 {{m.attachment_name}}</a>{% endif %}{% endif %} <small>{{m.created_at|time:'H:i'}}</small></p>
 	{% empty %}
