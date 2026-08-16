@@ -13,6 +13,17 @@ class SocialTests(TestCase):
   self.client.post(reverse('group_detail',args=[g.pk]),{'body':'Django','media_url':''});self.assertEqual(g.posts.count(),1)
  def test_anonymous_feed_redirects(self):
   self.client.logout();self.assertEqual(self.client.get(reverse('feed')).status_code,302)
+ def test_login_page_shows_google_button(self):
+  self.client.logout();r=self.client.get('/accounts/login/')
+  self.assertEqual(r.status_code,200);self.assertIn('google',r.content.decode().lower())
+ def test_google_adapter_creates_profile(self):
+  from .adapters import CustomSocialAccountAdapter
+  from allauth.socialaccount.models import SocialAccount, SocialLogin
+  from django.contrib.auth.models import User as U
+  user=U.objects.create_user('guser',password='strong-pass-123')
+  acc=SocialAccount(user=user,provider='google',extra_data={'picture':'https://lh3.googleusercontent.com/x.png'})
+  CustomSocialAccountAdapter().setup_profile(SocialLogin(account=acc,user=user))
+  self.assertEqual(user.profile.avatar,'https://lh3.googleusercontent.com/x.png')
 
 @override_settings(CHANNEL_LAYERS={'default':{'BACKEND':'channels.layers.InMemoryChannelLayer'}})
 class ChatTests(TestCase):
