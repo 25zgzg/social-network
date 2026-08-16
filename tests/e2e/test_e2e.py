@@ -71,7 +71,7 @@ def test_chat_realtime_between_two_users(browser):
 
         # B відкриває розмову і залишається на сторінці (live WS)
         b.goto(f'{BASE}/chats/')
-        b.click('a:has-text("Груповий чат")')
+        b.click(f"a:has-text(\"{a_name}\")")
 
         # A пише — B має побачити повідомлення без перезавантаження
         msg = f'Привіт, {b_name}, це WS-тест!'
