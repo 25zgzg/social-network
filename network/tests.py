@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from .models import Conversation, Friendship, Group, Membership, Post, Profile
+from .models import Conversation, Follow, Friendship, Group, Membership, Post, Profile, Rating
 class ShareFeedTests(TestCase):
  def setUp(self):
   self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
@@ -168,3 +168,48 @@ class GroupModerationTests(TestCase):
  def test_group_page_shows_toggle_admin_only_for_owner(self):
   self._login(self.owner);self.assertContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
   self._login(self.admin);self.assertNotContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
+
+class RatingTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+  self.staff=User.objects.create_user('moderator',password='strong-pass-123',is_staff=True);Profile.objects.create(user=self.staff)
+  self.post=Post.objects.create(author=self.user,body='Пост для оцінки');self.group=Group.objects.create(name='Python',description='Dev',owner=self.other)
+ def test_user_rates_post(self):
+  r=self.client.post(reverse('rate_post',args=[self.post.pk]),{'value':5,'review':'Гарно'})
+  self.assertEqual(r.status_code,302);self.assertEqual(Rating.objects.filter(user=self.user,post=self.post,value=5,review='Гарно').count(),1)
+ def test_rerate_updates_without_duplicate(self):
+  self.client.post(reverse('rate_post',args=[self.post.pk]),{'value':3,'review':'Так собі'})
+  self.client.post(reverse('rate_post',args=[self.post.pk]),{'value':5,'review':'Круто'})
+  self.assertEqual(Rating.objects.filter(user=self.user,post=self.post).count(),1)
+  rating=Rating.objects.get(user=self.user,post=self.post);self.assertEqual(rating.value,5);self.assertEqual(rating.review,'Круто')
+ def test_group_rating(self):
+  self.assertEqual(self.client.post(reverse('rate_group',args=[self.group.pk]),{'value':4,'review':'Затишно'}).status_code,302)
+  self.assertEqual(self.group.ratings.filter(user=self.user,value=4).count(),1)
+  content=self.client.get(reverse('group_detail',args=[self.group.pk])).content.decode()
+  self.assertIn('★ 4,0 (1)',content);self.assertIn('Відгуки',content);self.assertIn('Затишно',content)
+ def test_hidden_rating_excluded_from_average(self):
+  Rating.objects.create(user=self.user,post=self.post,value=5);hidden=Rating.objects.create(user=self.staff,post=self.post,value=1)
+  self.assertEqual(self.post.rating_stats,(3.0,2))
+  hidden.is_approved=False;hidden.save(update_fields=['is_approved'])
+  self.assertEqual(self.post.rating_stats,(5.0,1))
+ def test_staff_hide_and_restore(self):
+  self.client.logout();self.client.login(username='moderator',password='strong-pass-123')
+  rating=Rating.objects.create(user=self.user,post=self.post,value=5)
+  self.assertEqual(self.client.post(reverse('rating_hide',args=[rating.pk])).status_code,302)
+  rating.refresh_from_db();self.assertFalse(rating.is_approved)
+  self.assertEqual(self.client.post(reverse('rating_restore',args=[rating.pk])).status_code,302)
+  rating.refresh_from_db();self.assertTrue(rating.is_approved)
+ def test_non_staff_moderation_gets_404(self):
+  rating=Rating.objects.create(user=self.other,post=self.post,value=4)
+  self.assertEqual(self.client.post(reverse('rating_hide',args=[rating.pk])).status_code,404)
+  self.assertEqual(self.client.post(reverse('rating_restore',args=[rating.pk])).status_code,404)
+  rating.refresh_from_db();self.assertTrue(rating.is_approved)
+ def test_feed_renders_rating_line_and_reviews(self):
+  Rating.objects.create(user=self.other,post=self.post,value=4,review='Гарно')
+  content=self.client.get(reverse('feed')).content.decode()
+  self.assertIn('★ 4,0 (1)',content);self.assertIn('★4',content);self.assertIn('Відгуки',content)
+  self.assertNotIn('Сховати',content)
+  Follow.objects.create(follower=self.staff,target=self.user)
+  self.client.logout();self.client.login(username='moderator',password='strong-pass-123')
+  self.assertIn('Сховати',self.client.get(reverse('feed')).content.decode())
