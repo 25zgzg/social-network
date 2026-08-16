@@ -104,6 +104,8 @@ class FriendshipTests(TestCase):
  def test_follow_notifies_only_on_create(self):
   self.client.post(reverse('follow',args=['olia']));self.assertEqual(self.other.notifications.count(),1);self.assertIn('підписався',self.other.notifications.first().text)
   self.client.post(reverse('follow',args=['olia']));self.assertEqual(self.other.notifications.count(),1)
+ def test_profile_page_renders_friend_button(self):
+  r=self.client.get(reverse('profile',args=['olia']));self.assertEqual(r.status_code,200);self.assertContains(r,'Додати в друзі')
 class GroupModerationTests(TestCase):
  def setUp(self):
   self.owner=User.objects.create_user('owner',password='strong-pass-123');Profile.objects.create(user=self.owner)
@@ -166,5 +168,3 @@ class GroupModerationTests(TestCase):
  def test_group_page_shows_toggle_admin_only_for_owner(self):
   self._login(self.owner);self.assertContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
   self._login(self.admin);self.assertNotContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
- def test_profile_page_renders_friend_button(self):
-  r=self.client.get(reverse('profile',args=['olia']));self.assertEqual(r.status_code,200);self.assertContains(r,'Додати в друзі')
