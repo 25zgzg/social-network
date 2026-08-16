@@ -15,7 +15,7 @@ def home(request):
 def signup(request):
     form=SignupForm(request.POST or None)
     if form.is_valid():
-        user=form.save(); Profile.objects.create(user=user); login(request,user); return redirect('home')
+        user=form.save(); Profile.objects.create(user=user); login(request,user,backend='django.contrib.auth.backends.ModelBackend'); return redirect('home')
     return render(request,'registration/signup.html',{'form':form})
 @login_required
 def feed(request):

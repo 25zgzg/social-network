@@ -4,3 +4,4 @@ channels[daphne]==4.3.2
 channels-redis==4.2.1
 django-allauth==65.19.1
 requests==2.34.2
+sentry-sdk==2.68.0
