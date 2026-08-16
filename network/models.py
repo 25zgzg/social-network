@@ -79,3 +79,7 @@ def message_payload(message):
     return data
 class Rating(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); group=models.ForeignKey(Group,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); value=models.PositiveSmallIntegerField(); review=models.TextField(blank=True); created_at=models.DateTimeField(auto_now_add=True)
+class Event(models.Model):
+    title=models.CharField(max_length=120); description=models.TextField(blank=True); starts_at=models.DateTimeField(); created_by=models.ForeignKey(User,on_delete=models.CASCADE,null=True,blank=True)
+    class Meta: ordering=['starts_at']
+    def __str__(self): return self.title

@@ -2,7 +2,9 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from .models import Conversation, Friendship, Group, Membership, Post, Profile
+from django.utils import timezone
+from datetime import timedelta
+from .models import Conversation, Event, Follow, Friendship, Group, Membership, Post, Profile
 class ShareFeedTests(TestCase):
  def setUp(self):
   self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
@@ -168,3 +170,31 @@ class GroupModerationTests(TestCase):
  def test_group_page_shows_toggle_admin_only_for_owner(self):
   self._login(self.owner);self.assertContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
   self._login(self.admin);self.assertNotContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
+
+class HomeWidgetsTests(TestCase):
+ def test_home_lists_popular_user_with_follower_count(self):
+  star=User.objects.create_user('star',password='strong-pass-123');Profile.objects.create(user=star)
+  fan=User.objects.create_user('fan',password='strong-pass-123');Profile.objects.create(user=fan)
+  Follow.objects.create(follower=fan,target=star)
+  r=self.client.get(reverse('home'))
+  self.assertContains(r,'@star');self.assertContains(r,'1 підписників')
+ def test_most_followed_user_ranks_first(self):
+  star=User.objects.create_user('star',password='strong-pass-123');Profile.objects.create(user=star)
+  rising=User.objects.create_user('rising',password='strong-pass-123');Profile.objects.create(user=rising)
+  f1=User.objects.create_user('f1',password='strong-pass-123');Profile.objects.create(user=f1)
+  f2=User.objects.create_user('f2',password='strong-pass-123');Profile.objects.create(user=f2)
+  Follow.objects.create(follower=f1,target=star);Follow.objects.create(follower=f2,target=star);Follow.objects.create(follower=f1,target=rising)
+  r=self.client.get(reverse('home'))
+  self.assertEqual(r.context['popular_users'][0].username,'star');self.assertEqual(r.context['popular_users'][1].username,'rising')
+ def test_home_shows_only_upcoming_events(self):
+  Event.objects.create(title='Майбутній мітап',starts_at=timezone.now()+timedelta(days=2))
+  Event.objects.create(title='Минулий захід',starts_at=timezone.now()-timedelta(days=2))
+  r=self.client.get(reverse('home'))
+  self.assertContains(r,'Майбутній мітап');self.assertNotContains(r,'Минулий захід')
+ def test_home_event_renders_date_and_description(self):
+  Event.objects.create(title='PyCon',description='Конференція про Python та Django',starts_at=timezone.now()+timedelta(days=3))
+  r=self.client.get(reverse('home'))
+  self.assertContains(r,'PyCon');self.assertContains(r,'Конференція');self.assertRegex(r.content.decode(),r'\d{2}\.\d{2} \d{2}:\d{2}')
+ def test_empty_states_render(self):
+  r=self.client.get(reverse('home'))
+  self.assertContains(r,'Ще нікого');self.assertContains(r,'Подій немає')
