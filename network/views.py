@@ -69,6 +69,15 @@ def share_post(request,pk):
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
+def rate_post(request,pk):
+    """Оцінка публікації 1-5 з необов'язковим відгуком; повторне надсилання оновлює існуючий запис."""
+    post=get_object_or_404(Post,pk=pk); form=RatingForm(request.POST)
+    if form.is_valid():
+        rating,created=Rating.objects.get_or_create(user=request.user,post=post,defaults={'value':form.cleaned_data['value'],'review':form.cleaned_data['review']})
+        if not created: rating.value=form.cleaned_data['value'];rating.review=form.cleaned_data['review'];rating.save()
+    return redirect(request.META.get('HTTP_REFERER','feed'))
+@login_required
+@require_POST
 def follow(request,username):
     target=get_object_or_404(User,username=username)
     if target!=request.user:
@@ -130,6 +139,29 @@ def group_toggle_admin(request,pk,user_id):
     if group.owner_id!=request.user.id: raise Http404
     membership=get_object_or_404(Membership,group=group,user_id=user_id)
     membership.is_admin=not membership.is_admin; membership.save(update_fields=['is_admin']); return redirect('group_detail',pk)
+@login_required
+@require_POST
+def rate_group(request,pk):
+    """Оцінка групи 1-5 з необов'язковим відгуком; повторне надсилання оновлює існуючий запис."""
+    group=get_object_or_404(Group,pk=pk); form=RatingForm(request.POST)
+    if form.is_valid():
+        rating,created=Rating.objects.get_or_create(user=request.user,group=group,defaults={'value':form.cleaned_data['value'],'review':form.cleaned_data['review']})
+        if not created: rating.value=form.cleaned_data['value'];rating.review=form.cleaned_data['review'];rating.save()
+    return redirect(request.META.get('HTTP_REFERER','feed'))
+@login_required
+@require_POST
+def rating_hide(request,pk):
+    """Модерація: лише staff ховає відгук із стрічки та середніх оцінок."""
+    if not request.user.is_staff: raise Http404
+    rating=get_object_or_404(Rating,pk=pk); rating.is_approved=False; rating.save(update_fields=['is_approved'])
+    return redirect(request.META.get('HTTP_REFERER','feed'))
+@login_required
+@require_POST
+def rating_restore(request,pk):
+    """Модерація: лише staff повертає прихований відгук."""
+    if not request.user.is_staff: raise Http404
+    rating=get_object_or_404(Rating,pk=pk); rating.is_approved=True; rating.save(update_fields=['is_approved'])
+    return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 def notifications(request):
     items=request.user.notifications.order_by('-created_at'); items.update(is_read=True); return render(request,'network/notifications.html',{'items':items})
