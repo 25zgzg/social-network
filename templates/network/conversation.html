@@ -59,11 +59,16 @@
 	};
 	chatSocket.onclose = function(e){ console.warn('Chat socket closed'); };
 
+	function sendWhenOpen(payload){
+		if(chatSocket.readyState === WebSocket.OPEN){ chatSocket.send(payload); }
+		else{ setTimeout(function(){ sendWhenOpen(payload); }, 150); }
+	}
+
 	form.addEventListener('submit', function(e){
 		e.preventDefault();
 		const val = input.value.trim();
 		if(!val) return;
-		chatSocket.send(JSON.stringify({message: val}));
+		sendWhenOpen(JSON.stringify({message: val}));
 		input.value = '';
 	});
 })();
