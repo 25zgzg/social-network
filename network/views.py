@@ -8,8 +8,8 @@ from django.views.decorators.http import require_POST
 from django.contrib.auth import login
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, PostForm, ProfileForm, RatingForm, SignupForm
-from .models import Conversation, Follow, Friendship, Group, Like, Membership, Message, Notification, Post, Profile, Rating, message_payload, notify_message
+from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, NotificationSettingForm, PostForm, ProfileForm, RatingForm, SignupForm
+from .models import Conversation, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating, create_notification, message_payload, notify_message
 
 def visible_posts(user):
     """Пости видимі користувачу: власні, друзів (accepted), підписок та спільнот, де він учасник."""
@@ -49,7 +49,7 @@ def edit_profile(request):
 def toggle_like(request,pk):
     post=get_object_or_404(Post,pk=pk); like,created=Like.objects.get_or_create(user=request.user,post=post)
     if not created: like.delete()
-    elif post.author!=request.user: Notification.objects.create(recipient=post.author,actor=request.user,text=f'{request.user.username} вподобав вашу публікацію')
+    elif post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} вподобав вашу публікацію',kind='like')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
@@ -57,7 +57,7 @@ def add_comment(request,pk):
     post=get_object_or_404(Post,pk=pk); form=CommentForm(request.POST)
     if form.is_valid():
         c=form.save(commit=False); c.post=post; c.user=request.user; c.save()
-        if post.author!=request.user: Notification.objects.create(recipient=post.author,actor=request.user,text=f'{request.user.username} прокоментував вашу публікацію')
+        if post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} прокоментував вашу публікацію',kind='comment')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
@@ -65,7 +65,7 @@ def share_post(request,pk):
     original=get_object_or_404(Post,pk=pk)
     if original.shared_from: original=original.shared_from
     Post.objects.create(author=request.user,shared_from=original,body=request.POST.get('body',''))
-    if original.author!=request.user: Notification.objects.create(recipient=original.author,actor=request.user,text=f'{request.user.username} поширив вашу публікацію')
+    if original.author!=request.user: create_notification(original.author,request.user,f'{request.user.username} поширив вашу публікацію',kind='like')
     return redirect(request.META.get('HTTP_REFERER','feed'))
 @login_required
 @require_POST
@@ -82,7 +82,7 @@ def follow(request,username):
     target=get_object_or_404(User,username=username)
     if target!=request.user:
         obj,created=Follow.objects.get_or_create(follower=request.user,target=target)
-        if created: Notification.objects.create(recipient=target,actor=request.user,text=f'@{request.user.username} підписався на вас',url=f'/u/{request.user.username}/')
+        if created: create_notification(target,request.user,f'@{request.user.username} підписався на вас',f'/u/{request.user.username}/',kind='follow')
         else: obj.delete()
     return redirect('profile',username)
 def _is_group_admin(user,group):
@@ -166,6 +166,11 @@ def rating_restore(request,pk):
 def notifications(request):
     items=request.user.notifications.order_by('-created_at'); items.update(is_read=True); return render(request,'network/notifications.html',{'items':items})
 @login_required
+def notification_settings(request):
+    setting,_=NotificationSetting.objects.get_or_create(user=request.user); form=NotificationSettingForm(request.POST or None,instance=setting)
+    if form.is_valid(): form.save(); return redirect('notifications')
+    return render(request,'network/notification_settings.html',{'form':form,'title':'Налаштування сповіщень'})
+@login_required
 def chats(request):
     return render(request,'network/chats.html',{'conversations':request.user.conversations.all()})
 @login_required
@@ -200,10 +205,10 @@ def friend_requests(request):
 def friend_action(request,username):
     target=get_object_or_404(User,username=username); action=request.POST.get('action') or 'send'; incoming=Friendship.objects.filter(sender=target,receiver=request.user).first(); outgoing=Friendship.objects.filter(sender=request.user,receiver=target).first()
     if action in('accept','send') and incoming and incoming.status=='pending':
-        incoming.status='accepted';incoming.save();Notification.objects.create(recipient=target,actor=request.user,text=f'@{request.user.username} прийняв ваш запит у друзі',url=f'/u/{request.user.username}/')
+        incoming.status='accepted';incoming.save();create_notification(target,request.user,f'@{request.user.username} прийняв ваш запит у друзі',f'/u/{request.user.username}/',kind='friend')
     elif action=='reject': Friendship.objects.filter(sender=target,receiver=request.user,status='pending').delete()
     elif action=='cancel': Friendship.objects.filter(sender=request.user,receiver=target,status='pending').delete()
     elif action=='remove': Friendship.objects.filter(Q(sender=request.user,receiver=target)|Q(sender=target,receiver=request.user),status='accepted').delete()
     elif action=='send' and target!=request.user and not incoming and not outgoing:
-        Friendship.objects.create(sender=request.user,receiver=target);Notification.objects.create(recipient=target,actor=request.user,text=f'@{request.user.username} надіслав вам запит у друзі',url='/friends/')
+        Friendship.objects.create(sender=request.user,receiver=target);create_notification(target,request.user,f'@{request.user.username} надіслав вам запит у друзі','/friends/',kind='friend')
     return redirect(request.META.get('HTTP_REFERER') or f'/u/{username}/')
