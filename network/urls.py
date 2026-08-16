@@ -9,5 +9,5 @@ urlpatterns=[
  path('groups/<int:pk>/leave/',views.leave_group,name='leave_group'),path('groups/<int:pk>/posts/<int:post_pk>/delete/',views.group_delete_post,name='group_delete_post'),
  path('groups/<int:pk>/members/<int:user_id>/kick/',views.group_kick_member,name='group_kick_member'),path('groups/<int:pk>/members/<int:user_id>/toggle-admin/',views.group_toggle_admin,name='group_toggle_admin'),path('groups/<int:pk>/rate/',views.rate_group,name='rate_group'),
  path('ratings/<int:pk>/hide/',views.rating_hide,name='rating_hide'),path('ratings/<int:pk>/restore/',views.rating_restore,name='rating_restore'),
- path('notifications/',views.notifications,name='notifications'),path('chats/',views.chats,name='chats'),path('chats/new/',views.conversation_create,name='conversation_create'),path('chats/<int:pk>/',views.conversation,name='conversation'),path('chats/<int:pk>/upload/',views.chat_upload,name='chat_upload'),
+ path('notifications/',views.notifications,name='notifications'),path('notifications/settings/',views.notification_settings,name='notification_settings'),path('chats/',views.chats,name='chats'),path('chats/new/',views.conversation_create,name='conversation_create'),path('chats/<int:pk>/',views.conversation,name='conversation'),path('chats/<int:pk>/upload/',views.chat_upload,name='chat_upload'), feature/notifications-complete
 ]
