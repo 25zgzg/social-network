@@ -3,7 +3,7 @@
 <div class="narrow">
 	<h1>{{chat.title|default:'Чат'}}</h1>
 	<div class="card messages">{% for m in chat.messages.all %}
-		<p><b>@{{m.sender.username}}</b> {{m.body}} <small>{{m.created_at|time:'H:i'}}</small></p>
+		<p><b>@{{m.sender.username}}</b> {{m.body}} {% if m.attachment %}{% if m.is_image %}<img class="chat-img" src="{{m.attachment.url}}" alt="{{m.attachment_name}}">{% else %}<a href="{{m.attachment.url}}">📎 {{m.attachment_name}}</a>{% endif %}{% endif %} <small>{{m.created_at|time:'H:i'}}</small></p>
 	{% empty %}
 		<p>Почніть розмову.</p>
 	{% endfor %}</div>
@@ -12,6 +12,13 @@
 		{% csrf_token %}
 		{{form.body}}
 		<button class="button">Надіслати</button>
+	</form>
+
+	<form class="inline card" method="post" action="{% url 'chat_upload' chat.pk %}" enctype="multipart/form-data">
+		{% csrf_token %}
+		<input type="file" name="attachment" required>
+		<input type="text" name="body" placeholder="Коментар до файлу (необов'язково)">
+		<button class="button">Прикріпити</button>
 	</form>
 </div>
 
@@ -24,14 +31,30 @@
 	const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
 	const chatSocket = new WebSocket(`${wsScheme}://${window.location.host}/ws/chat/${roomName}/`);
 
+	function renderMessage(m){
+		const p = document.createElement('p');
+		const b = document.createElement('b'); b.textContent = '@' + m.sender;
+		p.appendChild(b);
+		p.appendChild(document.createTextNode(' ' + (m.body || '') + ' '));
+		if(m.attachment){
+			if(/\.(png|jpe?g|gif|webp)$/i.test(m.attachment.url)){
+				const img = document.createElement('img'); img.className = 'chat-img'; img.src = m.attachment.url; img.alt = m.attachment.name;
+				p.appendChild(img);
+			}else{
+				const a = document.createElement('a'); a.href = m.attachment.url; a.textContent = '📎 ' + m.attachment.name;
+				p.appendChild(a);
+			}
+		}
+		const s = document.createElement('small'); s.textContent = m.created_at;
+		p.appendChild(s);
+		messagesContainer.appendChild(p);
+		messagesContainer.scrollTop = messagesContainer.scrollHeight;
+	}
+
 	chatSocket.onmessage = function(e){
 		try{
 			const data = JSON.parse(e.data);
-			const m = data.message;
-			const p = document.createElement('p');
-			p.innerHTML = `<b>@${m.sender}</b> ${m.body} <small>${m.created_at}</small>`;
-			messagesContainer.appendChild(p);
-			messagesContainer.scrollTop = messagesContainer.scrollHeight;
+			renderMessage(data.message);
 		}catch(err){ console.error('WS parse', err); }
 	};
 	chatSocket.onclose = function(e){ console.warn('Chat socket closed'); };
