@@ -1,1 +1,0 @@
-{% extends 'base.html' %}{% block content %}<div class="auth card"><h1>Вхід</h1><form method="post">{% csrf_token %}{{form.as_p}}<button class="button">Увійти</button></form><p>Ще немає акаунта? <a href="{% url 'signup' %}">Зареєструватися</a></p></div>{% endblock %}
