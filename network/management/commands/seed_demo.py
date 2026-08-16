@@ -48,6 +48,7 @@ POSTS = [
 ]
 
 
+EXTRAS={'olesya_k':('Львів','Кава, код, Карпати — у такому порядку'),'bodryn':('Львів','Шукаю світло завжди і всюди'),'marichka_dev':('Київ','Пишу на Django, годування котів у перервах'),'dmytro_h':('Харків','Наступна ціль — ультрамарафон'),'solomia_v':('Івано-Франківськ','Малюю гори, поки не побачу море'),'taras_b':('Львів','Новий трек уже скоро'),'yaryna_p':('Тернопіль','Книга місяця: «Більше повітря»'),'andrii_m':('Львів','Збираю рюкзак у гори')}
 class Command(BaseCommand):
     help = 'Сиілка реалістичного демо-контенту (ідемпотентно) / чистка E2E-сміття (--clean)'
 
@@ -73,8 +74,9 @@ class Command(BaseCommand):
         for username, full, bio, img in PEOPLE:
             first, last = full.split(' ', 1)
             u = User.objects.create_user(username, f'{username}@uasocial.ua', DEMO_PASSWORD, first_name=first, last_name=last)
+            loc, st = EXTRAS.get(username, ('', ''))
             Profile.objects.create(user=u, bio=bio, avatar=f'https://i.pravatar.cc/200?img={img}',
-                                   cover=f'https://picsum.photos/seed/{username}-cover/1200/300')
+                                   cover=f'https://picsum.photos/seed/{username}-cover/1200/300', location=loc, status=st)
             users[username] = u
         nazar = User.objects.filter(username='nazar').first()
         groups = {}
