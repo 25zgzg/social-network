@@ -44,6 +44,24 @@ class Notification(models.Model):
 class Conversation(models.Model):
     title=models.CharField(max_length=120,blank=True); participants=models.ManyToManyField(User,related_name='conversations'); created_at=models.DateTimeField(auto_now_add=True)
 class Message(models.Model):
-    conversation=models.ForeignKey(Conversation,on_delete=models.CASCADE,related_name='messages'); sender=models.ForeignKey(User,on_delete=models.CASCADE); body=models.TextField(); created_at=models.DateTimeField(auto_now_add=True)
+    conversation=models.ForeignKey(Conversation,on_delete=models.CASCADE,related_name='messages'); sender=models.ForeignKey(User,on_delete=models.CASCADE); body=models.TextField(blank=True); attachment=models.FileField(upload_to='chat/%Y/%m/',blank=True); created_at=models.DateTimeField(auto_now_add=True)
+    @property
+    def is_image(self):
+        return bool(self.attachment) and self.attachment.name.lower().endswith(('.png','.jpg','.jpeg','.gif','.webp'))
+    @property
+    def attachment_name(self):
+        return self.attachment.name.rsplit('/',1)[-1] if self.attachment else ''
+
+def notify_message(message):
+    """Створює сповіщення всім іншим учасникам розмови про нове повідомлення."""
+    text=f'{message.sender.username}: {(message.body or message.attachment_name)[:80]}'
+    for user in message.conversation.participants.exclude(pk=message.sender.pk):
+        Notification.objects.create(recipient=user,actor=message.sender,text=text[:255],url=f'/chats/{message.conversation.pk}/')
+
+def message_payload(message):
+    """Єдиний формат повідомлення для WebSocket-розсилки (consumer + upload view)."""
+    data={'id':message.pk,'sender':message.sender.username,'body':message.body,'created_at':message.created_at.strftime('%H:%M')}
+    if message.attachment: data['attachment']={'url':message.attachment.url,'name':message.attachment_name}
+    return data
 class Rating(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); group=models.ForeignKey(Group,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); value=models.PositiveSmallIntegerField(); review=models.TextField(blank=True); created_at=models.DateTimeField(auto_now_add=True)

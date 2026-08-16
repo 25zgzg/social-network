@@ -1,17 +1,27 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from django.contrib.auth import get_user_model
-from .models import Conversation, Message
+from .models import Conversation, message_payload, notify_message
 
-User = get_user_model()
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.room_name = self.scope['url_route']['kwargs']['room_name']
         self.room_group_name = f'chat_{self.room_name}'
+        user = self.scope.get('user')
+        if user is None or not user.is_authenticated or not await self.is_participant():
+            await self.close()
+            return
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
+
+    @database_sync_to_async
+    def is_participant(self):
+        try:
+            Conversation.objects.get(pk=int(self.room_name), participants=self.scope['user'])
+        except (Conversation.DoesNotExist, ValueError, TypeError):
+            return False
+        return True
 
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
@@ -21,8 +31,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         message_text = data.get('message', '')
         if not message_text:
             return
-        # save message to DB and prepare payload
         msg = await self.create_message(message_text)
+        if msg is None:
+            await self.close()
+            return
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -37,15 +49,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def create_message(self, message_text):
         conv = Conversation.objects.get(pk=int(self.room_name))
-        # scope.user is available on the consumer instance
         sender = self.scope.get('user')
         if sender is None or not sender.is_authenticated:
-            # anonymous fallback (shouldn't happen with login_required on view)
-            sender = User.objects.filter(is_active=True).first()
-        msg = Message.objects.create(conversation=conv, sender=sender, body=message_text)
-        return {
-            'id': msg.pk,
-            'sender': msg.sender.username,
-            'body': msg.body,
-            'created_at': msg.created_at.strftime('%H:%M'),
-        }
+            return None
+        msg = conv.messages.create(sender=sender, body=message_text)
+        notify_message(msg)
+        return message_payload(msg)

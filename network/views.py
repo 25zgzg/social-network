@@ -4,8 +4,10 @@ from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from django.contrib.auth import login
-from .forms import CommentForm, GroupForm, MessageForm, PostForm, ProfileForm, RatingForm, SignupForm
-from .models import Conversation, Follow, Friendship, Group, Like, Membership, Message, Notification, Post, Profile, Rating
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, PostForm, ProfileForm, RatingForm, SignupForm
+from .models import Conversation, Follow, Friendship, Group, Like, Membership, Message, Notification, Post, Profile, Rating, message_payload, notify_message
 
 def home(request):
     posts=Post.objects.select_related('author','group').annotate(like_count=Count('likes'))[:30]
@@ -82,8 +84,23 @@ def chats(request):
 @login_required
 def conversation(request,pk):
     chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); form=MessageForm(request.POST or None)
-    if form.is_valid(): m=form.save(commit=False);m.sender=request.user;m.conversation=chat;m.save();return redirect('conversation',pk)
+    if form.is_valid(): m=form.save(commit=False);m.sender=request.user;m.conversation=chat;m.save();notify_message(m);return redirect('conversation',pk)
     return render(request,'network/conversation.html',{'chat':chat,'form':form})
+@login_required
+def conversation_create(request):
+    friends=User.objects.filter(Q(received_friendships__sender=request.user,received_friendships__status='accepted')|Q(sent_friendships__receiver=request.user,sent_friendships__status='accepted')).exclude(pk=request.user.pk).distinct()
+    form=ConversationForm(request.POST or None); form.fields['participants'].queryset=friends
+    if form.is_valid():
+        c=Conversation.objects.create(title=form.cleaned_data['title']); c.participants.add(request.user,*form.cleaned_data['participants']); return redirect('conversation',c.pk)
+    return render(request,'network/form.html',{'form':form,'title':'Новий чат'})
+@login_required
+@require_POST
+def chat_upload(request,pk):
+    chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); file=request.FILES.get('attachment')
+    if file:
+        m=Message.objects.create(conversation=chat,sender=request.user,body=request.POST.get('body',''),attachment=file); notify_message(m)
+        async_to_sync(get_channel_layer().group_send)(f'chat_{chat.pk}',{'type':'chat.message','message':message_payload(m)})
+    return redirect('conversation',pk)
 @login_required
 def friend_requests(request):
     return render(request,'network/friends.html',{'requests':request.user.received_friendships.filter(status='pending')})
