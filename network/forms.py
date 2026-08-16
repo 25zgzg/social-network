@@ -17,5 +17,8 @@ class GroupForm(forms.ModelForm):
     class Meta: model=Group; fields=('name','description')
 class MessageForm(forms.ModelForm):
     class Meta: model=Message; fields=('body',)
+class ConversationForm(forms.Form):
+    title=forms.CharField(max_length=120,required=False,label='Назва (для групового чату)')
+    participants=forms.ModelMultipleChoiceField(queryset=User.objects.none(),label='Учасники',help_text='Оберіть друзів — можна кількох для групового чату')
 class RatingForm(forms.ModelForm):
     class Meta: model=Rating; fields=('value','review'); widgets={'value':forms.NumberInput(attrs={'min':1,'max':5})}
