@@ -322,3 +322,20 @@ class ProfileCustomizationTests(TestCase):
  def test_edit_profile_saves_new_fields(self):
   self.client.post(reverse('edit_profile'),{'status':'Новий статус','location':'Київ','bio':'біо','avatar':'','cover':''})
   self.user.profile.refresh_from_db();self.assertEqual(self.user.profile.status,'Новий статус');self.assertEqual(self.user.profile.location,'Київ')
+
+class ThemeSystemTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+ def test_auto_theme_renders_no_attribute(self):
+  self.user.profile.theme='auto';self.user.profile.save()
+  html=self.client.get(reverse('feed')).content.decode();self.assertNotIn('data-theme="',html)
+ def test_explicit_dark_renders_attribute(self):
+  Profile.objects.filter(user=self.user).update(theme='dark')
+  html=self.client.get(reverse('feed')).content.decode();self.assertIn('data-theme="dark"',html)
+ def test_migration_marked_light_to_auto(self):
+  from network.models import Profile as P
+  Profile.objects.filter(user=self.user).update(theme='light')  # явний вибір лишається
+  self.assertEqual(P.objects.get(user=self.user).theme,'light')
+ def test_nav_has_tooltips_and_user_menu(self):
+  html=self.client.get(reverse('feed')).content.decode()
+  self.assertIn('data-tip="Стрічка"',html);self.assertIn('user-dropdown',html);self.assertIn('Мій профіль',html)
