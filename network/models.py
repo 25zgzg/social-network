@@ -1,4 +1,6 @@
 import re
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import models
 from django.urls import reverse
@@ -55,6 +57,27 @@ class Comment(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='comments'); body=models.TextField(); created_at=models.DateTimeField(auto_now_add=True)
 class Notification(models.Model):
     recipient=models.ForeignKey(User,on_delete=models.CASCADE,related_name='notifications'); actor=models.ForeignKey(User,on_delete=models.CASCADE); text=models.CharField(max_length=255); url=models.CharField(max_length=255,blank=True); is_read=models.BooleanField(default=False); created_at=models.DateTimeField(auto_now_add=True)
+class NotificationSetting(models.Model):
+    user=models.OneToOneField(User,on_delete=models.CASCADE,related_name='notification_setting'); on_like=models.BooleanField(default=True); on_comment=models.BooleanField(default=True); on_friend=models.BooleanField(default=True); on_follow=models.BooleanField(default=True); on_message=models.BooleanField(default=True)
+    KIND_FIELDS={'like':'on_like','comment':'on_comment','friend':'on_friend','follow':'on_follow','message':'on_message'}
+    def __str__(self): return f'Сповіщення: {self.user.username}'
+
+def can_notify(user,kind):
+    """Чи увімкнені сповіщення цього типу в користувача (відсутній рядок = все увімкнено)."""
+    field=NotificationSetting.KIND_FIELDS.get(kind)
+    if not field: return True
+    setting=NotificationSetting.objects.filter(user=user).first()
+    return True if setting is None else getattr(setting,field)
+
+def create_notification(recipient,actor,text,url='',kind=''):
+    """Створює сповіщення (якщо тип дозволений) і пушить його реальним часом у групу користувача."""
+    if not can_notify(recipient,kind): return None
+    n=Notification.objects.create(recipient=recipient,actor=actor,text=text[:255],url=url)
+    try:
+        layer=get_channel_layer()
+        if layer: async_to_sync(layer.group_send)(f'user_{recipient.id}',{'type':'notify','text':n.text,'url':n.url,'unread':Notification.objects.filter(recipient=recipient,is_read=False).count()})
+    except Exception: pass
+    return n
 class Conversation(models.Model):
     title=models.CharField(max_length=120,blank=True); participants=models.ManyToManyField(User,related_name='conversations'); created_at=models.DateTimeField(auto_now_add=True)
 class Message(models.Model):
@@ -70,7 +93,7 @@ def notify_message(message):
     """Створює сповіщення всім іншим учасникам розмови про нове повідомлення."""
     text=f'{message.sender.username}: {(message.body or message.attachment_name)[:80]}'
     for user in message.conversation.participants.exclude(pk=message.sender.pk):
-        Notification.objects.create(recipient=user,actor=message.sender,text=text[:255],url=f'/chats/{message.conversation.pk}/')
+        create_notification(user,message.sender,text,f'/chats/{message.conversation.pk}/',kind='message')
 
 def message_payload(message):
     """Єдиний формат повідомлення для WebSocket-розсилки (consumer + upload view)."""

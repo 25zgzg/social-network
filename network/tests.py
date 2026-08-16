@@ -2,7 +2,7 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
-from .models import Conversation, Friendship, Group, Membership, Post, Profile
+from .models import Conversation, Friendship, Group, Like, Membership, NotificationSetting, Post, Profile
 class ShareFeedTests(TestCase):
  def setUp(self):
   self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
@@ -168,3 +168,29 @@ class GroupModerationTests(TestCase):
  def test_group_page_shows_toggle_admin_only_for_owner(self):
   self._login(self.owner);self.assertContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
   self._login(self.admin);self.assertNotContains(self.client.get(reverse('group_detail',args=[self.group.pk])),'Зробити адміном')
+
+@override_settings(CHANNEL_LAYERS={'default':{'BACKEND':'channels.layers.InMemoryChannelLayer'}})
+class NotificationSettingsTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+ def test_message_setting_mutes_chat_notification(self):
+  conv=Conversation.objects.create();conv.participants.add(self.user,self.other)
+  NotificationSetting.objects.create(user=self.other,on_message=False)
+  self.client.post(reverse('conversation',args=[conv.pk]),{'body':'Привіт!'})
+  self.assertTrue(conv.messages.filter(body='Привіт!').exists());self.assertEqual(self.other.notifications.count(),0)
+  NotificationSetting.objects.filter(user=self.other).delete()
+  self.client.post(reverse('conversation',args=[conv.pk]),{'body':'Ще раз'})
+  self.assertEqual(self.other.notifications.count(),1)
+ def test_like_setting_mutes_notification(self):
+  NotificationSetting.objects.create(user=self.other,on_like=False)
+  post=Post.objects.create(author=self.other,body='Пост')
+  self.client.post(reverse('like',args=[post.pk]));self.assertEqual(self.other.notifications.count(),0)
+  NotificationSetting.objects.filter(user=self.other).delete();Like.objects.filter(user=self.user,post=post).delete()
+  self.client.post(reverse('like',args=[post.pk]));self.assertEqual(self.other.notifications.count(),1)
+ def test_settings_page_get_and_post(self):
+  r=self.client.get(reverse('notification_settings'));self.assertEqual(r.status_code,200);self.assertContains(r,'Нові повідомлення в чатах');self.assertContains(r,'Лайки та поширення публікацій')
+  r=self.client.post(reverse('notification_settings'),{'on_comment':'on','on_friend':'on','on_follow':'on'});self.assertEqual(r.status_code,302)
+  s=self.user.notification_setting;self.assertFalse(s.on_like);self.assertTrue(s.on_comment);self.assertTrue(s.on_friend);self.assertTrue(s.on_follow);self.assertFalse(s.on_message)
+ def test_settings_page_requires_login(self):
+  self.client.logout();self.assertEqual(self.client.get(reverse('notification_settings')).status_code,302)
