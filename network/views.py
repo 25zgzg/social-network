@@ -1,6 +1,8 @@
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.db.models import Count, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from django.contrib.auth import login
@@ -59,6 +61,8 @@ def follow(request,username):
         obj,created=Follow.objects.get_or_create(follower=request.user,target=target)
         if not created: obj.delete()
     return redirect('profile',username)
+def _is_group_admin(user,group):
+    return group.owner_id==user.id or Membership.objects.filter(group=group,user=user,is_admin=True).exists()
 @login_required
 def create_group(request):
     form=GroupForm(request.POST or None)
@@ -66,15 +70,51 @@ def create_group(request):
         g=form.save(commit=False); g.owner=request.user; g.save(); Membership.objects.create(user=request.user,group=g,is_admin=True); return redirect('group_detail',g.pk)
     return render(request,'network/form.html',{'form':form,'title':'Нова спільнота'})
 @login_required
+def groups_list(request):
+    q=request.GET.get('q','').strip()
+    groups=Group.objects.annotate(member_count=Count('members',distinct=True),post_count=Count('posts',distinct=True)).order_by('name')
+    if q: groups=groups.filter(name__icontains=q)
+    return render(request,'network/groups.html',{'groups':groups,'q':q})
+@login_required
 def group_detail(request,pk):
-    group=get_object_or_404(Group,pk=pk); member=Membership.objects.filter(group=group,user=request.user).exists(); form=PostForm(request.POST or None)
+    group=get_object_or_404(Group,pk=pk); membership=Membership.objects.filter(group=group,user=request.user).first(); member=membership is not None; form=PostForm(request.POST or None)
+    is_owner=group.owner_id==request.user.id; group_admin=is_owner or bool(membership and membership.is_admin)
     if request.method=='POST' and member and form.is_valid():
         p=form.save(commit=False); p.author=request.user; p.group=group; p.save(); return redirect('group_detail',pk)
-    return render(request,'network/group.html',{'group':group,'member':member,'posts':group.posts.all(),'form':form})
+    memberships=group.membership_set.select_related('user').order_by('-is_admin','user__username')
+    return render(request,'network/group.html',{'group':group,'member':member,'is_owner':is_owner,'group_admin':group_admin,'memberships':memberships,'posts':group.posts.select_related('author'),'form':form})
 @login_required
 @require_POST
 def join_group(request,pk):
     group=get_object_or_404(Group,pk=pk); Membership.objects.get_or_create(user=request.user,group=group); return redirect('group_detail',pk)
+@login_required
+@require_POST
+def leave_group(request,pk):
+    group=get_object_or_404(Group,pk=pk)
+    if group.owner_id==request.user.id:
+        messages.error(request,'Власник не може покинути власну групу.'); return redirect('group_detail',pk)
+    Membership.objects.filter(group=group,user=request.user).delete(); return redirect('group_detail',pk)
+@login_required
+@require_POST
+def group_delete_post(request,pk,post_pk):
+    group=get_object_or_404(Group,pk=pk); post=get_object_or_404(Post,pk=post_pk,group=group)
+    if not (_is_group_admin(request.user,group) or post.author_id==request.user.id): raise Http404
+    post.delete(); return redirect('group_detail',pk)
+@login_required
+@require_POST
+def group_kick_member(request,pk,user_id):
+    group=get_object_or_404(Group,pk=pk)
+    if not _is_group_admin(request.user,group): raise Http404
+    target=get_object_or_404(User,pk=user_id)
+    if target.id==group.owner_id or (Membership.objects.filter(group=group,user=target,is_admin=True).exists() and request.user.id!=group.owner_id): raise Http404
+    Membership.objects.filter(group=group,user=target).delete(); return redirect('group_detail',pk)
+@login_required
+@require_POST
+def group_toggle_admin(request,pk,user_id):
+    group=get_object_or_404(Group,pk=pk)
+    if group.owner_id!=request.user.id: raise Http404
+    membership=get_object_or_404(Membership,group=group,user_id=user_id)
+    membership.is_admin=not membership.is_admin; membership.save(update_fields=['is_admin']); return redirect('group_detail',pk)
 @login_required
 def notifications(request):
     items=request.user.notifications.order_by('-created_at'); items.update(is_read=True); return render(request,'network/notifications.html',{'items':items})
