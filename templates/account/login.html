@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% load socialaccount %}{% block content %}<div class="auth card"><h1>Вхід</h1>
-<a class="button google-btn" href="{% provider_login_url 'google' %}">Увійти через Google</a>
+<a class="button google-btn btn" href="{% provider_login_url 'google' %}">Увійти через Google</a>
 <p class="or-divider">або</p>
-<form method="post">{% csrf_token %}{{form.as_p}}<button class="button">Увійти</button></form>
+<form method="post">{% csrf_token %}{{form.as_p}}<button class="button btn btn-primary">Увійти</button></form>
 <p>Ще немає акаунта? <a href="{% url 'signup' %}">Зареєструватися</a></p></div>{% endblock %}
