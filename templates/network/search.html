@@ -1,0 +1,12 @@
+{% extends 'base.html' %}{% block content %}<div class="narrow"><h1><i class="bi bi-search" aria-hidden="true"></i> Пошук</h1>
+<form class="card d-flex gap-2" method="get"><input type="search" name="q" value="{{q}}" placeholder="Ім\'я, юзернейм або назва групи…" autofocus><button class="button btn btn-primary">Знайти</button></form>
+{% if q %}
+<h2>Люди</h2>
+{% for u in users %}<div class="card d-flex align-items-center flex-wrap gap-2"><span class="msg-avatar" aria-hidden="true">{{u.username|first|upper}}</span><div class="flex-grow-1"><a href="{% url 'profile' u.username %}"><b>@{{u.username}}</b></a>{% if u.get_full_name %} · {{u.get_full_name}}{% endif %}{% if u.profile.status %}<small class="d-block text-muted">«{{u.profile.status}}»</small>{% elif u.profile.bio %}<small class="d-block text-muted">{{u.profile.bio|truncatechars:70}}</small>{% endif %}</div>{% if u.pk in friend_ids %}<a class="btn btn-sm btn-outline-primary" href="{% url 'start_chat' u.username %}"><i class="bi bi-chat-left-text" aria-hidden="true"></i> Написати</a>{% else %}<form class="inline" method="post" action="{% url 'friend_action' u.username %}">{% csrf_token %}<input type="hidden" name="action" value="send"><button class="btn btn-sm btn-primary">Додати в друзі</button></form>{% endif %}</div>
+{% empty %}<div class="card empty"><i class="bi bi-person-x" aria-hidden="true"></i>Людей за запитом «{{q}}» не знайдено.</div>{% endfor %}
+<h2>Групи</h2>
+{% for g in groups %}<a class="card block" href="{% url 'group_detail' g.pk %}"><i class="bi bi-collection" aria-hidden="true"></i> {{g.name}} · {{g.member_count}} учасників</a>
+{% empty %}<div class="card empty"><i class="bi bi-collection" aria-hidden="true"></i>Груп за запитом «{{q}}» не знайдено.</div>{% endfor %}
+{% else %}
+<div class="card empty"><i class="bi bi-search-heart" aria-hidden="true"></i>Почніть вводити ім'я — знайдемо людей і групи.</div>
+{% endif %}</div>{% endblock %}

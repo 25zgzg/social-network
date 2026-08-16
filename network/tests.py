@@ -301,3 +301,24 @@ class UxLogicTests(TestCase):
  def test_like_notification_has_url(self):
   p=Post.objects.create(author=self.other,body='пост');self.client.post(reverse('like',args=[p.pk]))
   n=self.other.notifications.first();self.assertTrue(n);self.assertEqual(n.url,f'/u/{self.other.username}/')
+
+class ProfileCustomizationTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other,status='каву і кодю і кодю',location='Львів')
+ def test_check_username_availability_json(self):
+  import json as j
+  r1=self.client.get(reverse('check_username'),{'q':'olia'});r2=self.client.get(reverse('check_username'),{'q':'freshuser'})
+  self.assertFalse(j.loads(r1.content)['available']);self.assertTrue(j.loads(r2.content)['available'])
+ def test_search_finds_users_and_groups(self):
+  Group.objects.create(name='Python Україна',description='dev',owner=self.other)
+  r=self.client.get(reverse('search'),{'q':'oli'});self.assertContains(r,'@olia');self.assertContains(r,'каву і кодю')
+  r=self.client.get(reverse('search'),{'q':'python'});self.assertContains(r,'Python Україна')
+  r=self.client.get(reverse('search'),{'q':'oli'});self.assertNotIn('nazar</b>',r.content.decode())
+ def test_set_theme_persists_in_profile(self):
+  self.client.post(reverse('set_theme'),{'theme':'dark'});self.assertEqual(Profile.objects.get(user=self.user).theme,'dark')
+ def test_profile_shows_status_and_location(self):
+  r=self.client.get(reverse('profile',args=['olia']));self.assertContains(r,'Львів');self.assertContains(r,'каву і кодю')
+ def test_edit_profile_saves_new_fields(self):
+  self.client.post(reverse('edit_profile'),{'status':'Новий статус','location':'Київ','bio':'біо','avatar':'','cover':''})
+  self.user.profile.refresh_from_db();self.assertEqual(self.user.profile.status,'Новий статус');self.assertEqual(self.user.profile.location,'Київ')

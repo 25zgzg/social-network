@@ -8,7 +8,7 @@ class SignupForm(UserCreationForm):
     email=forms.EmailField(required=True)
     class Meta(UserCreationForm.Meta): model=User; fields=('username','email','first_name','last_name')
 class ProfileForm(forms.ModelForm):
-    class Meta: model=Profile; fields=('bio','avatar','cover')
+    class Meta: model=Profile; fields=('status','location','bio','avatar','cover')
 class PostForm(forms.ModelForm):
     class Meta: model=Post; fields=('body','media_url'); widgets={'body':forms.Textarea(attrs={'rows':3,'placeholder':'Що нового?'})}
 class CommentForm(forms.ModelForm):

@@ -9,10 +9,14 @@ from django.urls import reverse
 User = settings.AUTH_USER_MODEL
 
 class Profile(models.Model):
+    LIGHT='light'; DARK='dark'; THEMES=[(LIGHT,'Світла'),(DARK,'Темна')]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     bio = models.TextField(blank=True)
     avatar = models.URLField(blank=True)
     cover = models.URLField(blank=True)
+    location = models.CharField(max_length=80, blank=True)
+    status = models.CharField(max_length=120, blank=True)
+    theme = models.CharField(max_length=10, choices=THEMES, default=LIGHT)
     def __str__(self): return self.user.username
 
 class Friendship(models.Model):
