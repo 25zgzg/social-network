@@ -267,3 +267,19 @@ class HomeWidgetsTests(TestCase):
  def test_empty_states_render(self):
   r=self.client.get(reverse('home'))
   self.assertContains(r,'Ще нікого');self.assertContains(r,'Подій немає')
+class SeedDemoTests(TestCase):
+ def test_seed_creates_realistic_content(self):
+  from django.core.management import call_command
+  from .models import Conversation, Event
+  call_command('seed_demo')
+  self.assertTrue(User.objects.filter(username='olesya_k').exists())
+  self.assertGreater(Post.objects.count(),10);self.assertGreater(Group.objects.count(),3)
+  self.assertGreater(Conversation.objects.count(),1);self.assertEqual(Event.objects.count(),4)
+  call_command('seed_demo')  # ідемпотентність
+  self.assertEqual(User.objects.filter(username='olesya_k').count(),1)
+ def test_seed_clean_removes_e2e_junk(self):
+  User.objects.create_user('nazar',password='strong-pass-123')
+  junk=User.objects.create_user('alice_deadbeef',password='strong-pass-123')
+  from django.core.management import call_command
+  call_command('seed_demo',clean=True)
+  self.assertFalse(User.objects.filter(pk=junk.pk).exists());self.assertTrue(User.objects.filter(username='nazar').exists())
