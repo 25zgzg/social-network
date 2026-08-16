@@ -5,11 +5,12 @@ from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+from django.utils import timezone
 from django.contrib.auth import login
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, NotificationSettingForm, PostForm, ProfileForm, RatingForm, SignupForm
-from .models import Conversation, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating, create_notification, message_payload, notify_message
+from .models import Conversation, Event, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating, create_notification, message_payload, notify_message
 
 def visible_posts(user):
     """Пости видимі користувачу: власні, друзів (accepted), підписок та спільнот, де він учасник."""
@@ -20,7 +21,8 @@ def visible_posts(user):
 def home(request):
     qs=visible_posts(request.user) if request.user.is_authenticated else Post.objects.all()
     posts=qs.select_related('author','group','shared_from__author','shared_from__group').annotate(like_count=Count('likes'))[:30]
-    return render(request,'network/home.html',{'posts':posts,'groups':Group.objects.annotate(member_count=Count('members')).order_by('-member_count')[:5]})
+    popular_users=User.objects.annotate(follower_count=Count('followers')).order_by('-follower_count')[:5]
+    return render(request,'network/home.html',{'posts':posts,'groups':Group.objects.annotate(member_count=Count('members')).order_by('-member_count')[:5],'popular_users':popular_users,'upcoming_events':Event.objects.filter(starts_at__gte=timezone.now())[:5]})
 def signup(request):
     form=SignupForm(request.POST or None)
     if form.is_valid():
