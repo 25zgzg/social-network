@@ -52,3 +52,28 @@ class ChatTests(TestCase):
   conv=Conversation.objects.create();conv.participants.add(self.user,self.other)
   self.client.post(reverse('conversation',args=[conv.pk]),{'body':'Привіт!'})
   self.assertTrue(conv.messages.filter(body='Привіт!').exists());self.assertEqual(self.other.notifications.count(),1)
+
+class FriendshipTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+ def test_reject_deletes_incoming_request(self):
+  Friendship.objects.create(sender=self.other,receiver=self.user)
+  self.client.post(reverse('friend_action',args=['olia']),{'action':'reject'});self.assertFalse(Friendship.objects.exists())
+ def test_cancel_removes_outgoing_request(self):
+  Friendship.objects.create(sender=self.user,receiver=self.other)
+  self.client.post(reverse('friend_action',args=['olia']),{'action':'cancel'});self.assertFalse(Friendship.objects.exists())
+ def test_remove_unfriends_both_directions(self):
+  Friendship.objects.create(sender=self.other,receiver=self.user,status='accepted');self.client.post(reverse('friend_action',args=['olia']),{'action':'remove'});self.assertFalse(Friendship.objects.exists())
+  Friendship.objects.create(sender=self.user,receiver=self.other,status='accepted');self.client.post(reverse('friend_action',args=['olia']),{'action':'remove'});self.assertFalse(Friendship.objects.exists())
+ def test_friends_page_lists_accepted_friend(self):
+  Friendship.objects.create(sender=self.other,receiver=self.user,status='accepted')
+  r=self.client.get(reverse('friends'));self.assertContains(r,'@olia')
+ def test_request_and_accept_create_notifications(self):
+  self.client.post(reverse('friend_action',args=['olia']),{'action':'send'})
+  self.assertEqual(self.other.notifications.count(),1);self.assertIn('запит у друзі',self.other.notifications.first().text);self.assertEqual(self.other.notifications.first().url,'/friends/')
+  self.client.logout();self.client.login(username='olia',password='strong-pass-123');self.client.post(reverse('friend_action',args=['nazar']),{'action':'accept'})
+  self.assertTrue(Friendship.objects.filter(status='accepted').exists());self.assertEqual(self.user.notifications.count(),1);self.assertIn('прийняв',self.user.notifications.first().text)
+ def test_follow_notifies_only_on_create(self):
+  self.client.post(reverse('follow',args=['olia']));self.assertEqual(self.other.notifications.count(),1);self.assertIn('підписався',self.other.notifications.first().text)
+  self.client.post(reverse('follow',args=['olia']));self.assertEqual(self.other.notifications.count(),1)
