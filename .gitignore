@@ -58,6 +58,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 .ruff_cache/
+test-results/
+playwright-report/
 ТЗ Соціальна мережа.pdf
 # === IDEs, Editors & OS Files ===
 .vscode/
