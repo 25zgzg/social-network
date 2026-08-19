@@ -4,16 +4,23 @@ from channels.layers import get_channel_layer
 from django.conf import settings
 from django.db import models
 from django.db.models import Avg, Count
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.urls import reverse
 
 User = settings.AUTH_USER_MODEL
+
+def no_css_breakout(value):
+    """Захист від CSS-ін'єкції у контексті url('...'): заборона лапок, дужок і керівних символів."""
+    if value and any(ch in value for ch in "'\"()\n\r"):
+        raise ValidationError('Значення містить заборонені символи (лапки, дужки або керівні символи).')
 
 class Profile(models.Model):
     LIGHT='light'; DARK='dark'; AUTO='auto'; THEMES=[(AUTO,'Як у системі'),(LIGHT,'Світла'),(DARK,'Темна')]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     bio = models.TextField(blank=True)
     avatar = models.URLField(blank=True)
-    cover = models.URLField(blank=True)
+    cover = models.URLField(blank=True, validators=[no_css_breakout])
     location = models.CharField(max_length=80, blank=True)
     status = models.CharField(max_length=120, blank=True)
     theme = models.CharField(max_length=10, choices=THEMES, default=AUTO)
@@ -36,7 +43,7 @@ class Follow(models.Model):
     class Meta: constraints=[models.UniqueConstraint(fields=['follower','target'],name='unique_follow')]
 
 class Group(models.Model):
-    name=models.CharField(max_length=120); description=models.TextField(); owner=models.ForeignKey(User,on_delete=models.CASCADE,related_name='owned_groups'); members=models.ManyToManyField(User,through='Membership',related_name='social_groups'); created_at=models.DateTimeField(auto_now_add=True)
+    name=models.CharField(max_length=120); description=models.TextField(max_length=2000); owner=models.ForeignKey(User,on_delete=models.CASCADE,related_name='owned_groups'); members=models.ManyToManyField(User,through='Membership',related_name='social_groups'); created_at=models.DateTimeField(auto_now_add=True)
     def get_absolute_url(self): return reverse('group_detail',args=[self.pk])
     @property
     def rating_stats(self): return rating_stats(self.ratings)
@@ -45,7 +52,7 @@ class Membership(models.Model):
     class Meta: constraints=[models.UniqueConstraint(fields=['user','group'],name='unique_membership')]
 
 class Post(models.Model):
-    author=models.ForeignKey(User,on_delete=models.CASCADE,related_name='posts'); group=models.ForeignKey(Group,on_delete=models.CASCADE,null=True,blank=True,related_name='posts'); body=models.TextField(); media_url=models.URLField(blank=True); shared_from=models.ForeignKey('self',null=True,blank=True,on_delete=models.CASCADE,related_name='shares'); created_at=models.DateTimeField(auto_now_add=True); updated_at=models.DateTimeField(auto_now=True)
+    author=models.ForeignKey(User,on_delete=models.CASCADE,related_name='posts'); group=models.ForeignKey(Group,on_delete=models.CASCADE,null=True,blank=True,related_name='posts'); body=models.TextField(max_length=5000); media_url=models.URLField(blank=True); shared_from=models.ForeignKey('self',null=True,blank=True,on_delete=models.CASCADE,related_name='shares'); created_at=models.DateTimeField(auto_now_add=True); updated_at=models.DateTimeField(auto_now=True)
     class Meta: ordering=['-created_at']
     @property
     def media_kind(self):
@@ -66,7 +73,7 @@ class Like(models.Model):
     user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='likes')
     class Meta: constraints=[models.UniqueConstraint(fields=['user','post'],name='unique_like')]
 class Comment(models.Model):
-    user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='comments'); body=models.TextField(); created_at=models.DateTimeField(auto_now_add=True)
+    user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='comments'); body=models.TextField(max_length=1000); created_at=models.DateTimeField(auto_now_add=True)
 class Notification(models.Model):
     recipient=models.ForeignKey(User,on_delete=models.CASCADE,related_name='notifications'); actor=models.ForeignKey(User,on_delete=models.CASCADE); text=models.CharField(max_length=255); url=models.CharField(max_length=255,blank=True); is_read=models.BooleanField(default=False); created_at=models.DateTimeField(auto_now_add=True)
 class NotificationSetting(models.Model):
@@ -93,7 +100,7 @@ def create_notification(recipient,actor,text,url='',kind=''):
 class Conversation(models.Model):
     title=models.CharField(max_length=120,blank=True); participants=models.ManyToManyField(User,related_name='conversations'); created_at=models.DateTimeField(auto_now_add=True)
 class Message(models.Model):
-    conversation=models.ForeignKey(Conversation,on_delete=models.CASCADE,related_name='messages'); sender=models.ForeignKey(User,on_delete=models.CASCADE); body=models.TextField(blank=True); attachment=models.FileField(upload_to='chat/%Y/%m/',blank=True); created_at=models.DateTimeField(auto_now_add=True)
+    conversation=models.ForeignKey(Conversation,on_delete=models.CASCADE,related_name='messages'); sender=models.ForeignKey(User,on_delete=models.CASCADE); body=models.TextField(blank=True,max_length=5000); attachment=models.FileField(upload_to='chat/%Y/%m/',blank=True); created_at=models.DateTimeField(auto_now_add=True)
     @property
     def is_image(self):
         return bool(self.attachment) and self.attachment.name.lower().endswith(('.png','.jpg','.jpeg','.gif','.webp'))
@@ -113,7 +120,7 @@ def message_payload(message):
     if message.attachment: data['attachment']={'url':message.attachment.url,'name':message.attachment_name}
     return data
 class Rating(models.Model):
-    user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); group=models.ForeignKey(Group,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); value=models.PositiveSmallIntegerField(); review=models.TextField(blank=True); is_approved=models.BooleanField(default=True); created_at=models.DateTimeField(auto_now_add=True)
+    user=models.ForeignKey(User,on_delete=models.CASCADE); post=models.ForeignKey(Post,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); group=models.ForeignKey(Group,on_delete=models.CASCADE,related_name='ratings',null=True,blank=True); value=models.PositiveSmallIntegerField(validators=[MinValueValidator(1),MaxValueValidator(5)]); review=models.TextField(blank=True); is_approved=models.BooleanField(default=True); created_at=models.DateTimeField(auto_now_add=True)
 def rating_stats(ratings):
     """(середня оцінка, кількість) лише зі схвалених відгуків (is_approved=True)."""
     agg=ratings.filter(is_approved=True).aggregate(avg=Avg('value'),count=Count('id'))

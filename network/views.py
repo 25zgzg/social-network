@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
@@ -26,6 +27,7 @@ def post_visible_to(post,user):
 from django.utils import timezone
 from django.contrib.auth import login
 from asgiref.sync import async_to_sync
+from channels.exceptions import ChannelFull
 from channels.layers import get_channel_layer
 from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, NotificationSettingForm, PostForm, ProfileForm, RatingForm, SignupForm
 from .models import Conversation, Event, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating, create_notification, message_payload, notify_message
@@ -237,13 +239,15 @@ def conversation_create(request):
 def chat_upload(request,pk):
     chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); file=request.FILES.get('attachment')
     if file:
-        import os as _os
         if not file.name.lower().endswith(UPLOAD_EXTENSIONS):
             return HttpResponseForbidden('Файл цього типу заборонено. Дозволено: зображення, відео, pdf, txt, zip.')
         if file.size>UPLOAD_MAX_BYTES:
             return HttpResponseForbidden('Файл занадто великий (макс. 10 МБ).')
         m=Message.objects.create(conversation=chat,sender=request.user,body=request.POST.get('body',''),attachment=file); notify_message(m)
-        async_to_sync(get_channel_layer().group_send)(f'chat_{chat.pk}',{'type':'chat.message','message':message_payload(m)})
+        try:
+            async_to_sync(get_channel_layer().group_send)(f'chat_{chat.pk}',{'type':'chat.message','message':message_payload(m)})
+        except (ChannelFull,ConnectionError):
+            pass
     return redirect('conversation',pk)
 @login_required
 def friend_requests(request):
@@ -262,7 +266,12 @@ def friend_action(request,username):
     elif action=='cancel': Friendship.objects.filter(sender=request.user,receiver=target,status='pending').delete()
     elif action=='remove': Friendship.objects.filter(Q(sender=request.user,receiver=target)|Q(sender=target,receiver=request.user),status='accepted').delete()
     elif action=='send' and target!=request.user and not incoming and not outgoing:
-        Friendship.objects.create(sender=request.user,receiver=target);create_notification(target,request.user,f'@{request.user.username} надіслав вам запит у друзі','/friends/',kind='friend')
+        try:
+            Friendship.objects.create(sender=request.user,receiver=target)
+        except IntegrityError:
+            pass
+        else:
+            create_notification(target,request.user,f'@{request.user.username} надіслав вам запит у друзі','/friends/',kind='friend')
     return safe_redirect(request,f'/u/{username}/')
 
 def check_username(request):

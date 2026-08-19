@@ -3,6 +3,11 @@
 Для багатопроцесного production замінити на Redis-бекенд (див. README).
 Правила: POST-запити — 60/хв на IP глобально, 10/хв на /accounts/;
 GET /check-username/ — 30/хв на IP (анти-енумерація).
+
+IP береться лише з REMOTE_ADDR: заголовок X-Forwarded-For керується
+клієнтом і дозволяє обходити ліміт підміною значення. Якщо застосунок
+стоїть за проксі (Nginx/Caddy), проксі має перезаписувати/очищати XFF
+на кордоні мережі, а сама лічба все одно ведеться за REMOTE_ADDR.
 """
 import threading
 import time
@@ -37,7 +42,7 @@ class RateLimitMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        ip = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() or request.META.get('REMOTE_ADDR', '')
+        ip = request.META.get('REMOTE_ADDR', '')
         path = request.path
         if request.method == 'POST':
             if path.startswith('/accounts/') and _too_many(ip, 'login', _RULES['LOGIN']):

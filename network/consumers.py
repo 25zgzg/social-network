@@ -1,6 +1,7 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from channels.exceptions import ChannelFull
 from .models import Conversation, Notification, message_payload, notify_message
 
 MAX_MESSAGE_LENGTH=5000
@@ -14,7 +15,11 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if user is None or not user.is_authenticated or not await self.is_participant():
             await self.close()
             return
-        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        try:
+            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        except (ChannelFull, ConnectionError):
+            await self.close()
+            return
         await self.accept()
 
     @database_sync_to_async
@@ -26,7 +31,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
         return True
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        try:
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        except (ChannelFull, ConnectionError):
+            pass
 
     async def receive(self, text_data):
         try:
@@ -40,13 +48,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if msg is None:
             await self.close()
             return
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'chat.message',
-                'message': msg,
-            }
-        )
+        try:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    'type': 'chat.message',
+                    'message': msg,
+                }
+            )
+        except (ChannelFull, ConnectionError):
+            pass
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({'message': event['message']}))
@@ -74,13 +85,20 @@ class NotificationsConsumer(AsyncWebsocketConsumer):
             await self.close()
             return
         self.group_name = f'user_{user.id}'
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        try:
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+        except (ChannelFull, ConnectionError):
+            await self.close()
+            return
         await self.accept()
         await self.send(text_data=json.dumps({'unread': await self.unread_count()}))
 
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name'):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            try:
+                await self.channel_layer.group_discard(self.group_name, self.channel_name)
+            except (ChannelFull, ConnectionError):
+                pass
 
     @database_sync_to_async
     def unread_count(self):

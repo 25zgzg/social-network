@@ -1,10 +1,25 @@
 from datetime import timedelta
+import asyncio
+import io
+import os
+import requests
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.utils import timezone
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
-from django.urls import reverse
-from .models import Conversation, Event, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating
+from django.urls import re_path, reverse
+from asgiref.sync import async_to_sync
+from channels.middleware import BaseMiddleware
+from channels.routing import URLRouter
+from channels.testing import WebsocketCommunicator
+from PIL import Image
+from . import consumers
+from .models import Comment, Conversation, Event, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating
 class ShareFeedTests(TestCase):
  def setUp(self):
   self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
@@ -51,8 +66,11 @@ class SocialTests(TestCase):
   from django.contrib.auth.models import User as U
   user=U.objects.create_user('guser',password='strong-pass-123')
   acc=SocialAccount(user=user,provider='google',extra_data={'picture':'https://lh3.googleusercontent.com/x.png'})
-  CustomSocialAccountAdapter().setup_profile(SocialLogin(account=acc,user=user))
-  self.assertEqual(user.profile.avatar,'https://lh3.googleusercontent.com/x.png')
+  buf=io.BytesIO();Image.new('RGB',(8,8)).save(buf,format='JPEG')
+  resp=Mock(status_code=200,headers={'Content-Type':'image/jpeg'},content=buf.getvalue(),raise_for_status=Mock())
+  with patch('network.adapters.requests.get',return_value=resp):
+   CustomSocialAccountAdapter().setup_profile(SocialLogin(account=acc,user=user))
+  self.assertTrue(user.profile.avatar.startswith('/media/avatars/'))
 
 @override_settings(CHANNEL_LAYERS={'default':{'BACKEND':'channels.layers.InMemoryChannelLayer'}})
 class ChatTests(TestCase):
@@ -370,3 +388,164 @@ class FooterDarkTests(TestCase):
   Profile.objects.filter(user=u).update(theme='dark')
   c=Client(); c.force_login(u)
   self.assertIn('data-bs-theme="dark"',c.get(reverse('feed')).content.decode())
+
+class BrokenChannelLayer:
+ def __init__(self,*a,**kw): pass
+ async def new_channel(self): return 'broken!1'
+ async def receive(self,channel): await asyncio.Event().wait()
+ def group_add(self,g,c): raise ConnectionError('redis down')
+ def group_discard(self,g,c): raise ConnectionError('redis down')
+ def group_send(self,g,m): raise ConnectionError('redis down')
+
+class _TestAuthMiddleware(BaseMiddleware):
+ def __init__(self,app,user): self.user=user; super().__init__(app)
+ async def __call__(self,scope,receive,send): scope['user']=self.user; return await super().__call__(scope,receive,send)
+
+class RateLimitTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+  self.post=Post.objects.create(author=self.user,body='пост')
+  self.ip='203.0.113.77'
+ def tearDown(self):
+  from network import ratelimit
+  ratelimit._hits.clear()
+ def _like(self,xff=''):
+  extra={'REMOTE_ADDR':self.ip}
+  if xff: extra['HTTP_X_FORWARDED_FOR']=xff
+  return self.client.post(reverse('like',args=[self.post.pk]),**extra)
+ def test_60_posts_allowed_then_429(self):
+  for _ in range(60): self.assertEqual(self._like().status_code,302)
+  self.assertEqual(self._like().status_code,429)
+ def test_xff_does_not_bypass_limit(self):
+  for i in range(60): self.assertEqual(self._like(xff=f'1.2.3.{i}').status_code,302)
+  self.assertEqual(self._like(xff='9.9.9.9').status_code,429)
+
+class InputLimitTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+  self.post=Post.objects.create(author=self.other,body='пост')
+ def test_post_body_over_5000_rejected(self):
+  self.client.post(reverse('feed'),{'body':'x'*5001,'media_url':''})
+  self.assertFalse(Post.objects.filter(author=self.user).exists())
+ def test_comment_over_1000_rejected(self):
+  self.client.post(reverse('comment',args=[self.post.pk]),{'body':'x'*1001})
+  self.assertEqual(Comment.objects.filter(post=self.post).count(),0)
+ def test_message_over_5000_rejected(self):
+  conv=Conversation.objects.create();conv.participants.add(self.user,self.other)
+  self.client.post(reverse('conversation',args=[conv.pk]),{'body':'x'*5001})
+  self.assertFalse(conv.messages.exists())
+ def test_group_description_over_2000_rejected(self):
+  self.client.post(reverse('create_group'),{'name':'X','description':'x'*2001})
+  self.assertFalse(Group.objects.filter(name='X').exists())
+ def test_rating_out_of_range_rejected(self):
+  self.client.post(reverse('rate_post',args=[self.post.pk]),{'value':0,'review':''})
+  self.client.post(reverse('rate_post',args=[self.post.pk]),{'value':999,'review':''})
+  self.assertEqual(Rating.objects.filter(post=self.post).count(),0)
+
+class CoverInjectionTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+ def test_cover_with_css_breakout_rejected_by_form(self):
+  self.client.post(reverse('edit_profile'),{'status':'','location':'','bio':'','avatar':'','cover':'https://example.com/a(1).jpg'})
+  self.assertEqual(Profile.objects.get(user=self.user).cover,'')
+ def test_cover_payloads_rejected_by_model(self):
+  p=Profile.objects.get(user=self.user)
+  for payload in ('https://example.com/a(1).jpg',"https://x.example/a' onerror='alert(1)",'https://x.example/a" onerror="alert(1)','https://x.example/a(\nb'):
+   p.cover=payload
+   with self.assertRaises(ValidationError): p.full_clean()
+  p.cover='https://example.com/cover.jpg';p.full_clean()
+ def test_profile_renders_data_cover_not_inline_style(self):
+  Profile.objects.filter(user=self.user).update(cover='https://example.com/cover.jpg')
+  html=self.client.get(reverse('profile',args=[self.user.username])).content.decode()
+  self.assertNotIn('style="background-image',html);self.assertIn('data-cover="https://example.com/cover.jpg"',html);self.assertIn('dataset.cover',html)
+
+class FriendRaceTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+ @patch('network.models.Friendship.objects.create',side_effect=IntegrityError)
+ def test_duplicate_friend_request_does_not_duplicate(self,mock_create):
+  r=self.client.post(reverse('friend_action',args=['olia']),{'action':'send'})
+  self.assertEqual(r.status_code,302);self.assertEqual(self.other.notifications.count(),0);self.assertFalse(Friendship.objects.exists())
+
+class AvatarDownloadTests(TestCase):
+ def setUp(self):
+  from allauth.socialaccount.models import SocialAccount, SocialLogin
+  from .adapters import CustomSocialAccountAdapter
+  self.SocialLogin=SocialLogin
+  self.user=User.objects.create_user('guser',password='strong-pass-123')
+  self.account=SocialAccount(user=self.user,provider='google',extra_data={'picture':'https://lh3.googleusercontent.com/x.png'})
+  self.adapter=CustomSocialAccountAdapter()
+ def _jpg(self):
+  buf=io.BytesIO();Image.new('RGB',(8,8)).save(buf,format='JPEG');return buf.getvalue()
+ def _resp(self,content_type='image/jpeg',content=b'x',status=200):
+  return Mock(status_code=status,headers={'Content-Type':content_type},content=content,raise_for_status=Mock())
+ @patch('network.adapters.requests.get')
+ def test_download_avatar_saves_local_file(self,mock_get):
+  mock_get.return_value=self._resp(content=self._jpg())
+  url=self.adapter.download_avatar('https://lh3.googleusercontent.com/x.png')
+  self.assertTrue(url.startswith('/media/avatars/'))
+  path=os.path.join(settings.MEDIA_ROOT,url[len(settings.MEDIA_URL):])
+  self.assertTrue(os.path.exists(path));os.remove(path)
+ @patch('network.adapters.requests.get')
+ def test_download_avatar_rejects_non_image(self,mock_get):
+  mock_get.return_value=self._resp(content_type='text/html',content=b'<html>')
+  self.assertEqual(self.adapter.download_avatar('https://x.example/page'),'')
+ @patch('network.adapters.requests.get')
+ def test_download_avatar_rejects_oversized(self,mock_get):
+  mock_get.return_value=self._resp(content=b'x'*(5*1024*1024+1))
+  self.assertEqual(self.adapter.download_avatar('https://x.example/big.jpg'),'')
+ @patch('network.adapters.requests.get')
+ def test_download_avatar_rejects_http_error(self,mock_get):
+  resp=self._resp(status=404);resp.raise_for_status.side_effect=requests.HTTPError('404')
+  mock_get.return_value=resp
+  self.assertEqual(self.adapter.download_avatar('https://x.example/missing.jpg'),'')
+ @patch('network.adapters.requests.get')
+ def test_download_avatar_returns_empty_on_network_error(self,mock_get):
+  mock_get.side_effect=requests.ConnectionError('down')
+  self.assertEqual(self.adapter.download_avatar('https://x.example/avatar.jpg'),'')
+ @patch('network.adapters.requests.get')
+ def test_setup_profile_never_stores_external_url(self,mock_get):
+  mock_get.side_effect=requests.ConnectionError('down')
+  self.adapter.setup_profile(self.SocialLogin(account=self.account,user=self.user))
+  self.assertEqual(Profile.objects.get(user=self.user).avatar,'')
+ @patch('network.adapters.requests.get')
+ def test_setup_profile_saves_local_avatar(self,mock_get):
+  mock_get.return_value=self._resp(content=self._jpg())
+  self.adapter.setup_profile(self.SocialLogin(account=self.account,user=self.user))
+  self.assertTrue(Profile.objects.get(user=self.user).avatar.startswith('/media/avatars/'))
+
+@override_settings(CHANNEL_LAYERS={'default':{'BACKEND':'network.tests.BrokenChannelLayer'}})
+class RedisDownTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+  self.other=User.objects.create_user('olia',password='strong-pass-123');Profile.objects.create(user=self.other)
+  self.conv=Conversation.objects.create();self.conv.participants.add(self.user,self.other)
+ def test_chat_upload_saves_and_redirects_when_layer_down(self):
+  f=SimpleUploadedFile('note.txt',b'hello',content_type='text/plain')
+  r=self.client.post(reverse('chat_upload',args=[self.conv.pk]),{'attachment':f})
+  self.assertEqual(r.status_code,302);self.assertTrue(Message.objects.filter(conversation=self.conv).exists())
+ @patch.object(consumers.ChatConsumer,'is_participant',new=AsyncMock(return_value=True))
+ def test_chat_consumer_connect_closes_when_layer_down(self):
+  app=_TestAuthMiddleware(URLRouter([re_path(r'ws/chat/(?P<room_name>\w+)/$',consumers.ChatConsumer.as_asgi())]),SimpleNamespace(is_authenticated=True))
+  comm=WebsocketCommunicator(app,f'/ws/chat/{self.conv.pk}/')
+  connected,_=async_to_sync(comm.connect)()
+  self.assertFalse(connected)
+ def test_notification_consumer_connect_closes_when_layer_down(self):
+  app=_TestAuthMiddleware(URLRouter([re_path(r'ws/notifications/$',consumers.NotificationsConsumer.as_asgi())]),SimpleNamespace(is_authenticated=True,id=1))
+  comm=WebsocketCommunicator(app,'/ws/notifications/')
+  connected,_=async_to_sync(comm.connect)()
+  self.assertFalse(connected)
+
+class SecurityHeadersTests(TestCase):
+ def setUp(self):
+  self.user=User.objects.create_user('nazar',password='strong-pass-123');Profile.objects.create(user=self.user);self.client.login(username='nazar',password='strong-pass-123')
+ def test_csp_header_present(self):
+  csp=self.client.get(reverse('feed')).headers.get('Content-Security-Policy','')
+  self.assertIn("default-src 'self'",csp);self.assertIn("script-src 'self'",csp);self.assertIn("object-src 'none'",csp);self.assertIn("frame-ancestors 'self'",csp)
+ def test_csp_header_present_for_anonymous(self):
+  self.client.logout()
+  csp=self.client.get(reverse('home')).headers.get('Content-Security-Policy','')
+  self.assertIn("default-src 'self'",csp)
