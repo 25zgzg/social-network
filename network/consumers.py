@@ -3,6 +3,8 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from .models import Conversation, Notification, message_payload, notify_message
 
+MAX_MESSAGE_LENGTH=5000
+
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -27,9 +29,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
+        try:
+            data = json.loads(text_data)
+        except (ValueError, TypeError):
+            return
         message_text = data.get('message', '')
-        if not message_text:
+        if not message_text or len(message_text) > MAX_MESSAGE_LENGTH:
             return
         msg = await self.create_message(message_text)
         if msg is None:
@@ -48,9 +53,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def create_message(self, message_text):
-        conv = Conversation.objects.get(pk=int(self.room_name))
         sender = self.scope.get('user')
         if sender is None or not sender.is_authenticated:
+            return None
+        try:
+            conv = Conversation.objects.get(pk=int(self.room_name), participants=sender)
+        except (Conversation.DoesNotExist, ValueError, TypeError):
             return None
         msg = conv.messages.create(sender=sender, body=message_text)
         notify_message(msg)

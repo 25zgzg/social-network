@@ -5,6 +5,24 @@ from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+from django.http import HttpResponseForbidden
+from django.utils.http import url_has_allowed_host_and_scheme
+
+UPLOAD_EXTENSIONS=('.png','.jpg','.jpeg','.gif','.webp','.mp4','.webm','.pdf','.txt','.zip')
+UPLOAD_MAX_BYTES=10*1024*1024
+
+def safe_redirect(request,fallback='feed'):
+    """Редірект лише на власний хост (анти open redirect через Referer)."""
+    ref=request.META.get('HTTP_REFERER','')
+    if ref and url_has_allowed_host_and_scheme(ref,allowed_hosts={request.get_host()},require_https=request.is_secure()):
+        return redirect(ref)
+    return redirect(fallback)
+
+def post_visible_to(post,user):
+    """Групові пости бачать лише учасники групи (або адміни Django)."""
+    if post.group is None: return True
+    if getattr(user,'is_superuser',False): return True
+    return Membership.objects.filter(group=post.group,user=user).exists()
 from django.utils import timezone
 from django.contrib.auth import login
 from asgiref.sync import async_to_sync
@@ -19,7 +37,7 @@ def visible_posts(user):
     followed=Follow.objects.filter(follower=user).values_list('target_id',flat=True)
     return Post.objects.filter(Q(author_id__in=ids|set(followed))|Q(group__members=user)).distinct()
 def home(request):
-    qs=visible_posts(request.user) if request.user.is_authenticated else Post.objects.all()
+    qs=visible_posts(request.user) if request.user.is_authenticated else Post.objects.filter(group__isnull=True)
     posts=qs.select_related('author','group','shared_from__author','shared_from__group').annotate(like_count=Count('likes'))[:30]
     popular_users=User.objects.annotate(follower_count=Count('followers')).order_by('-follower_count')[:5]
     return render(request,'network/home.html',{'posts':posts,'groups':Group.objects.annotate(member_count=Count('members')).order_by('-member_count')[:5],'popular_users':popular_users,'upcoming_events':Event.objects.filter(starts_at__gte=timezone.now())[:5]})
@@ -41,7 +59,7 @@ def profile(request,username):
     fs=Friendship.objects.filter(Q(sender=request.user,receiver=user)|Q(sender=user,receiver=request.user)).first()
     state='friend' if fs and fs.status=='accepted' else 'incoming' if fs and fs.sender==user else 'outgoing' if fs else 'none'
     stats={'posts':user.posts.count(),'friends':Friendship.objects.filter(Q(sender=user,status='accepted')|Q(receiver=user,status='accepted')).count(),'followers':Follow.objects.filter(target=user).count()}
-    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.all(),'is_following':Follow.objects.filter(follower=request.user,target=user).exists(),'friend_state':state,'stats':stats})
+    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.filter(group__isnull=True),'is_following':Follow.objects.filter(follower=request.user,target=user).exists(),'friend_state':state,'stats':stats})
 @login_required
 def edit_profile(request):
     profile,_=Profile.objects.get_or_create(user=request.user); form=ProfileForm(request.POST or None,instance=profile)
@@ -50,35 +68,42 @@ def edit_profile(request):
 @login_required
 @require_POST
 def toggle_like(request,pk):
-    post=get_object_or_404(Post,pk=pk); like,created=Like.objects.get_or_create(user=request.user,post=post)
+    post=get_object_or_404(Post,pk=pk)
+    if not post_visible_to(post,request.user): return HttpResponseForbidden('Пост недоступний')
+    like,created=Like.objects.get_or_create(user=request.user,post=post)
     if not created: like.delete()
     elif post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} вподобав вашу публікацію',url=f'/u/{post.author.username}/',kind='like')
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 @require_POST
 def add_comment(request,pk):
-    post=get_object_or_404(Post,pk=pk); form=CommentForm(request.POST)
+    post=get_object_or_404(Post,pk=pk)
+    if not post_visible_to(post,request.user): return HttpResponseForbidden('Пост недоступний')
+    form=CommentForm(request.POST)
     if form.is_valid():
         c=form.save(commit=False); c.post=post; c.user=request.user; c.save()
         if post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} прокоментував вашу публікацію',url=f'/u/{post.author.username}/',kind='comment')
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 @require_POST
 def share_post(request,pk):
     original=get_object_or_404(Post,pk=pk)
+    if not post_visible_to(original,request.user): return HttpResponseForbidden('Пост недоступний')
     if original.shared_from: original=original.shared_from
     Post.objects.create(author=request.user,shared_from=original,body=request.POST.get('body',''))
     if original.author!=request.user: create_notification(original.author,request.user,f'{request.user.username} поширив вашу публікацію',url=f'/u/{original.author.username}/',kind='like')
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 @require_POST
 def rate_post(request,pk):
     """Оцінка публікації 1-5 з необов'язковим відгуком; повторне надсилання оновлює існуючий запис."""
-    post=get_object_or_404(Post,pk=pk); form=RatingForm(request.POST)
+    post=get_object_or_404(Post,pk=pk)
+    if not post_visible_to(post,request.user): return HttpResponseForbidden('Пост недоступний')
+    form=RatingForm(request.POST)
     if form.is_valid():
         rating,created=Rating.objects.get_or_create(user=request.user,post=post,defaults={'value':form.cleaned_data['value'],'review':form.cleaned_data['review']})
         if not created: rating.value=form.cleaned_data['value'];rating.review=form.cleaned_data['review'];rating.save()
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 @require_POST
 def follow(request,username):
@@ -109,7 +134,7 @@ def group_detail(request,pk):
     if request.method=='POST' and member and form.is_valid():
         p=form.save(commit=False); p.author=request.user; p.group=group; p.save(); return redirect('group_detail',pk)
     memberships=group.membership_set.select_related('user').order_by('-is_admin','user__username')
-    return render(request,'network/group.html',{'group':group,'member':member,'is_owner':is_owner,'group_admin':group_admin,'memberships':memberships,'posts':group.posts.select_related('author'),'form':form})
+    return render(request,'network/group.html',{'group':group,'member':member,'is_owner':is_owner,'group_admin':group_admin,'memberships':memberships,'posts':group.posts.select_related('author') if member else group.posts.none(),'form':form})
 @login_required
 @require_POST
 def join_group(request,pk):
@@ -150,21 +175,21 @@ def rate_group(request,pk):
     if form.is_valid():
         rating,created=Rating.objects.get_or_create(user=request.user,group=group,defaults={'value':form.cleaned_data['value'],'review':form.cleaned_data['review']})
         if not created: rating.value=form.cleaned_data['value'];rating.review=form.cleaned_data['review'];rating.save()
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 @require_POST
 def rating_hide(request,pk):
     """Модерація: лише staff ховає відгук із стрічки та середніх оцінок."""
-    if not request.user.is_staff: raise Http404
+    if not request.user.is_staff: return HttpResponseForbidden('Лише для модераторів')
     rating=get_object_or_404(Rating,pk=pk); rating.is_approved=False; rating.save(update_fields=['is_approved'])
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 @require_POST
 def rating_restore(request,pk):
     """Модерація: лише staff повертає прихований відгук."""
-    if not request.user.is_staff: raise Http404
+    if not request.user.is_staff: return HttpResponseForbidden('Лише для модераторів')
     rating=get_object_or_404(Rating,pk=pk); rating.is_approved=True; rating.save(update_fields=['is_approved'])
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    return safe_redirect(request,'feed')
 @login_required
 def notifications(request):
     items=request.user.notifications.order_by('-created_at'); items.update(is_read=True); return render(request,'network/notifications.html',{'items':items})
@@ -195,6 +220,8 @@ def conversation(request,pk):
 def start_chat(request,username):
     other=get_object_or_404(User,username=username)
     if other==request.user: return redirect('chats')
+    if not Friendship.objects.filter(Q(sender=request.user,receiver=other,status='accepted')|Q(sender=other,receiver=request.user,status='accepted')).exists():
+        return redirect('profile',username)
     for c in Conversation.objects.filter(participants=request.user).filter(participants=other):
         if c.participants.count()==2: return redirect('conversation',c.pk)
     c=Conversation.objects.create(); c.participants.add(request.user,other); return redirect('conversation',c.pk)
@@ -210,6 +237,11 @@ def conversation_create(request):
 def chat_upload(request,pk):
     chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); file=request.FILES.get('attachment')
     if file:
+        import os as _os
+        if not file.name.lower().endswith(UPLOAD_EXTENSIONS):
+            return HttpResponseForbidden('Файл цього типу заборонено. Дозволено: зображення, відео, pdf, txt, zip.')
+        if file.size>UPLOAD_MAX_BYTES:
+            return HttpResponseForbidden('Файл занадто великий (макс. 10 МБ).')
         m=Message.objects.create(conversation=chat,sender=request.user,body=request.POST.get('body',''),attachment=file); notify_message(m)
         async_to_sync(get_channel_layer().group_send)(f'chat_{chat.pk}',{'type':'chat.message','message':message_payload(m)})
     return redirect('conversation',pk)
@@ -231,7 +263,7 @@ def friend_action(request,username):
     elif action=='remove': Friendship.objects.filter(Q(sender=request.user,receiver=target)|Q(sender=target,receiver=request.user),status='accepted').delete()
     elif action=='send' and target!=request.user and not incoming and not outgoing:
         Friendship.objects.create(sender=request.user,receiver=target);create_notification(target,request.user,f'@{request.user.username} надіслав вам запит у друзі','/friends/',kind='friend')
-    return redirect(request.META.get('HTTP_REFERER') or f'/u/{username}/')
+    return safe_redirect(request,f'/u/{username}/')
 
 def check_username(request):
     q=request.GET.get('q','').strip()

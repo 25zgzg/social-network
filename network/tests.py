@@ -202,10 +202,10 @@ class RatingTests(TestCase):
   rating.refresh_from_db();self.assertFalse(rating.is_approved)
   self.assertEqual(self.client.post(reverse('rating_restore',args=[rating.pk])).status_code,302)
   rating.refresh_from_db();self.assertTrue(rating.is_approved)
- def test_non_staff_moderation_gets_404(self):
+ def test_non_staff_moderation_gets_403(self):
   rating=Rating.objects.create(user=self.other,post=self.post,value=4)
-  self.assertEqual(self.client.post(reverse('rating_hide',args=[rating.pk])).status_code,404)
-  self.assertEqual(self.client.post(reverse('rating_restore',args=[rating.pk])).status_code,404)
+  self.assertEqual(self.client.post(reverse('rating_hide',args=[rating.pk])).status_code,403)
+  self.assertEqual(self.client.post(reverse('rating_restore',args=[rating.pk])).status_code,403)
   rating.refresh_from_db();self.assertTrue(rating.is_approved)
  def test_feed_renders_rating_line_and_reviews(self):
   Rating.objects.create(user=self.other,post=self.post,value=4,review='Гарно')

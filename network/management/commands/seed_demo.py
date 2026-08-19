@@ -66,9 +66,9 @@ class Command(BaseCommand):
             self.stdout.write('Демо-дані вже засіяні — нічого не роблю.')
             return
         if not User.objects.filter(is_superuser=True).exists():
-            admin = User.objects.create_superuser('admin', 'admin@example.com', 'admin1234!')
+            admin = User.objects.create_superuser('admin', 'admin@example.com', 'UAS0cial-Admin!')
             Profile.objects.create(user=admin, bio='Адміністратор платформи')
-            self.stdout.write(self.style.WARNING('Створено суперкористувача: admin / admin1234!'))
+            self.stdout.write(self.style.WARNING('Створено суперкористувача: admin / UAS0cial-Admin!'))
         now = timezone.now()
         users = {}
         for username, full, bio, img in PEOPLE:
