@@ -1,0 +1,5 @@
+{% extends 'base.html' %}{% load allauth %}{% block content %}<div class="auth card">
+<h1>{% if process == "connect" %}Підключити {{ provider.name }}{% else %}Вхід через {{ provider.name }}{% endif %}</h1>
+<p class="auth-foot-top">{% if process == "connect" %}Ви підключаєте новий акаунт через {{ provider.name }}.{% else %}Ви входите за допомогою акаунта {{ provider.name }}.{% endif %}</p>
+<form method="post">{% csrf_token %}<button type="submit" class="button btn btn-primary"><i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Продовжити</button></form>
+</div>{% endblock %}

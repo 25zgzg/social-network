@@ -106,7 +106,7 @@ AUTHENTICATION_BACKENDS = [
     "allauth.account.auth_backends.AuthenticationBackend",
 ]
 ACCOUNT_EMAIL_VERIFICATION = "none"
-SOCIALACCOUNT_LOGIN_ON_GET = False
+SOCIALACCOUNT_LOGIN_ON_GET = True
 SOCIALACCOUNT_ADAPTER = "network.adapters.CustomSocialAccountAdapter"
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
