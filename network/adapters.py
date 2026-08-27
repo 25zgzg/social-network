@@ -10,8 +10,8 @@ from PIL import Image
 
 from .models import Profile
 
-AVATAR_MAX_BYTES=5*1024*1024
-AVATAR_FETCH_TIMEOUT=10
+AVATAR_MAX_BYTES = 5 * 1024 * 1024
+AVATAR_FETCH_TIMEOUT = 10
 
 
 class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -24,7 +24,7 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
 
     def setup_profile(self, sociallogin):
         profile, _ = Profile.objects.get_or_create(user=sociallogin.user)
-        picture = sociallogin.account.extra_data.get('picture', '')
+        picture = sociallogin.account.extra_data.get("picture", "")
         if picture and not profile.avatar:
             url = self.download_avatar(picture)
             if url:
@@ -40,14 +40,16 @@ class CustomSocialAccountAdapter(DefaultSocialAccountAdapter):
         try:
             resp = requests.get(picture_url, timeout=AVATAR_FETCH_TIMEOUT)
             resp.raise_for_status()
-            if not resp.headers.get('Content-Type', '').lower().startswith('image/'):
-                return ''
+            if not resp.headers.get("Content-Type", "").lower().startswith("image/"):
+                return ""
             if len(resp.content) > AVATAR_MAX_BYTES:
-                return ''
+                return ""
             Image.open(io.BytesIO(resp.content)).verify()
         except Exception:
-            return ''
-        storage = FileSystemStorage(location=settings.MEDIA_ROOT, base_url=settings.MEDIA_URL)
-        name = f'avatars/{uuid.uuid4().hex}.jpg'
+            return ""
+        storage = FileSystemStorage(
+            location=settings.MEDIA_ROOT, base_url=settings.MEDIA_URL
+        )
+        name = f"avatars/{uuid.uuid4().hex}.jpg"
         storage.save(name, ContentFile(resp.content))
         return storage.url(name)

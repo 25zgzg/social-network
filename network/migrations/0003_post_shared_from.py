@@ -7,13 +7,19 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('network', '0002_message_attachment_alter_message_body'),
+        ("network", "0002_message_attachment_alter_message_body"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='post',
-            name='shared_from',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='shares', to='network.post'),
+            model_name="post",
+            name="shared_from",
+            field=models.ForeignKey(
+                blank=True,
+                null=True,
+                on_delete=django.db.models.deletion.CASCADE,
+                related_name="shares",
+                to="network.post",
+            ),
         ),
     ]

@@ -6,13 +6,23 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('network', '0008_alter_profile_theme'),
+        ("network", "0008_alter_profile_theme"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='profile',
-            name='palette',
-            field=models.CharField(choices=[('violet', 'Фіолет'), ('ocean', 'Океан'), ('forest', 'Ліс'), ('sunset', 'Захід'), ('mono', 'Монохром')], default='violet', max_length=10),
+            model_name="profile",
+            name="palette",
+            field=models.CharField(
+                choices=[
+                    ("violet", "Фіолет"),
+                    ("ocean", "Океан"),
+                    ("forest", "Ліс"),
+                    ("sunset", "Захід"),
+                    ("mono", "Монохром"),
+                ],
+                default="violet",
+                max_length=10,
+            ),
         ),
     ]

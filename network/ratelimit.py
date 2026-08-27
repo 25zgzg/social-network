@@ -9,19 +9,20 @@ IP береться лише з REMOTE_ADDR: заголовок X-Forwarded-For 
 стоїть за проксі (Nginx/Caddy), проксі має перезаписувати/очищати XFF
 на кордоні мережі, а сама лічба все одно ведеться за REMOTE_ADDR.
 """
+
 import threading
 import time
 
 from django.http import HttpResponse
 
 _WINDOW = 60
-_RULES = {'POST': 60, 'LOGIN': 10, 'CHECK': 30}
+_RULES = {"POST": 60, "LOGIN": 10, "CHECK": 30}
 _hits = {}
 _lock = threading.Lock()
 
 
 def _key(ip, bucket):
-    return f'{ip}|{bucket}'
+    return f"{ip}|{bucket}"
 
 
 def _too_many(ip, bucket, limit):
@@ -42,14 +43,20 @@ class RateLimitMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        ip = request.META.get('REMOTE_ADDR', '')
+        ip = request.META.get("REMOTE_ADDR", "")
         path = request.path
-        if request.method == 'POST':
-            if path.startswith('/accounts/') and _too_many(ip, 'login', _RULES['LOGIN']):
-                return HttpResponse('Забагато запитів, спробуйте за хвилину.', status=429)
-            if _too_many(ip, 'post', _RULES['POST']):
-                return HttpResponse('Забагато запитів, спробуйте за хвилину.', status=429)
-        elif path.startswith('/check-username/'):
-            if _too_many(ip, 'check', _RULES['CHECK']):
-                return HttpResponse('Забагато запитів.', status=429)
+        if request.method == "POST":
+            if path.startswith("/accounts/") and _too_many(
+                ip, "login", _RULES["LOGIN"]
+            ):
+                return HttpResponse(
+                    "Забагато запитів, спробуйте за хвилину.", status=429
+                )
+            if _too_many(ip, "post", _RULES["POST"]):
+                return HttpResponse(
+                    "Забагато запитів, спробуйте за хвилину.", status=429
+                )
+        elif path.startswith("/check-username/"):
+            if _too_many(ip, "check", _RULES["CHECK"]):
+                return HttpResponse("Забагато запитів.", status=429)
         return self.get_response(request)
