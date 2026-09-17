@@ -12,6 +12,7 @@ services:
       - .env
     environment:
       - DJANGO_DEBUG=false
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - redis
     restart: always
