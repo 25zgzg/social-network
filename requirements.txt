@@ -7,3 +7,4 @@ PyJWT==2.10.1
 requests==2.34.2
 sentry-sdk==2.68.0
 python-dotenv==1.1.1
+whitenoise==6.9.0
