@@ -6,18 +6,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('network', '0001_initial'),
+        ("network", "0001_initial"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='message',
-            name='attachment',
-            field=models.FileField(blank=True, upload_to='chat/%Y/%m/'),
+            model_name="message",
+            name="attachment",
+            field=models.FileField(blank=True, upload_to="chat/%Y/%m/"),
         ),
         migrations.AlterField(
-            model_name='message',
-            name='body',
+            model_name="message",
+            name="body",
             field=models.TextField(blank=True),
         ),
     ]

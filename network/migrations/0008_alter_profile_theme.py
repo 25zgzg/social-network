@@ -6,14 +6,27 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('network', '0007_profile_location_profile_status_profile_theme'),
+        ("network", "0007_profile_location_profile_status_profile_theme"),
     ]
 
     operations = [
-        migrations.RunPython(lambda apps, schema_editor: apps.get_model('network','Profile').objects.filter(theme='light').update(theme='auto'), migrations.RunPython.noop),
+        migrations.RunPython(
+            lambda apps, schema_editor: apps.get_model("network", "Profile")
+            .objects.filter(theme="light")
+            .update(theme="auto"),
+            migrations.RunPython.noop,
+        ),
         migrations.AlterField(
-            model_name='profile',
-            name='theme',
-            field=models.CharField(choices=[('auto', 'Як у системі'), ('light', 'Світла'), ('dark', 'Темна')], default='auto', max_length=10),
+            model_name="profile",
+            name="theme",
+            field=models.CharField(
+                choices=[
+                    ("auto", "Як у системі"),
+                    ("light", "Світла"),
+                    ("dark", "Темна"),
+                ],
+                default="auto",
+                max_length=10,
+            ),
         ),
     ]

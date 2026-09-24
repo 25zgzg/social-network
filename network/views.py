@@ -1,270 +1,759 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from django.db import IntegrityError
 from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
+from django.http import HttpResponseForbidden
+from django.utils.http import url_has_allowed_host_and_scheme
+
+UPLOAD_EXTENSIONS = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".mp4",
+    ".webm",
+    ".pdf",
+    ".txt",
+    ".zip",
+)
+UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+
+
+def safe_redirect(request, fallback="feed"):
+    """Редірект лише на власний хост (анти open redirect через Referer)."""
+    ref = request.META.get("HTTP_REFERER", "")
+    if ref and url_has_allowed_host_and_scheme(
+        ref, allowed_hosts={request.get_host()}, require_https=request.is_secure()
+    ):
+        return redirect(ref)
+    return redirect(fallback)
+
+
+def post_visible_to(post, user):
+    """Групові пости бачать лише учасники групи (або адміни Django)."""
+    if post.group is None:
+        return True
+    if getattr(user, "is_superuser", False):
+        return True
+    return Membership.objects.filter(group=post.group, user=user).exists()
+
+
 from django.utils import timezone
 from django.contrib.auth import login
 from asgiref.sync import async_to_sync
+from channels.exceptions import ChannelFull
 from channels.layers import get_channel_layer
-from .forms import CommentForm, ConversationForm, GroupForm, MessageForm, NotificationSettingForm, PostForm, ProfileForm, RatingForm, SignupForm
-from .models import Conversation, Event, Follow, Friendship, Group, Like, Membership, Message, NotificationSetting, Post, Profile, Rating, create_notification, message_payload, notify_message
+from .forms import (
+    CommentForm,
+    ConversationForm,
+    GroupForm,
+    MessageForm,
+    NotificationSettingForm,
+    PostForm,
+    ProfileForm,
+    RatingForm,
+    SignupForm,
+)
+from .models import (
+    Conversation,
+    Event,
+    Follow,
+    Friendship,
+    Group,
+    Like,
+    Membership,
+    Message,
+    NotificationSetting,
+    Post,
+    Profile,
+    Rating,
+    create_notification,
+    message_payload,
+    notify_message,
+)
+
 
 def visible_posts(user):
     """Пости видимі користувачу: власні, друзів (accepted), підписок та спільнот, де він учасник."""
-    pairs=Friendship.objects.filter(Q(sender=user,status='accepted')|Q(receiver=user,status='accepted')).values_list('sender_id','receiver_id')
-    ids={user.id}; [ids.update(pair) for pair in pairs]
-    followed=Follow.objects.filter(follower=user).values_list('target_id',flat=True)
-    return Post.objects.filter(Q(author_id__in=ids|set(followed))|Q(group__members=user)).distinct()
+    pairs = Friendship.objects.filter(
+        Q(sender=user, status="accepted") | Q(receiver=user, status="accepted")
+    ).values_list("sender_id", "receiver_id")
+    ids = {user.id}
+    [ids.update(pair) for pair in pairs]
+    followed = Follow.objects.filter(follower=user).values_list("target_id", flat=True)
+    return Post.objects.filter(
+        Q(author_id__in=ids | set(followed)) | Q(group__members=user)
+    ).distinct()
+
+
 def home(request):
-    qs=visible_posts(request.user) if request.user.is_authenticated else Post.objects.all()
-    posts=qs.select_related('author','group','shared_from__author','shared_from__group').annotate(like_count=Count('likes'))[:30]
-    popular_users=User.objects.annotate(follower_count=Count('followers')).order_by('-follower_count')[:5]
-    return render(request,'network/home.html',{'posts':posts,'groups':Group.objects.annotate(member_count=Count('members')).order_by('-member_count')[:5],'popular_users':popular_users,'upcoming_events':Event.objects.filter(starts_at__gte=timezone.now())[:5]})
+    qs = (
+        visible_posts(request.user)
+        if request.user.is_authenticated
+        else Post.objects.filter(group__isnull=True)
+    )
+    posts = qs.select_related(
+        "author", "group", "shared_from__author", "shared_from__group"
+    ).annotate(like_count=Count("likes"))[:30]
+    popular_users = User.objects.annotate(follower_count=Count("followers")).order_by(
+        "-follower_count"
+    )[:5]
+    return render(
+        request,
+        "network/home.html",
+        {
+            "posts": posts,
+            "groups": Group.objects.annotate(member_count=Count("members")).order_by(
+                "-member_count"
+            )[:5],
+            "popular_users": popular_users,
+            "upcoming_events": Event.objects.filter(starts_at__gte=timezone.now())[:5],
+        },
+    )
+
+
 def signup(request):
-    form=SignupForm(request.POST or None)
+    form = SignupForm(request.POST or None)
     if form.is_valid():
-        user=form.save(); Profile.objects.create(user=user); login(request,user,backend='django.contrib.auth.backends.ModelBackend'); return redirect('home')
-    return render(request,'registration/signup.html',{'form':form})
+        user = form.save()
+        Profile.objects.create(user=user)
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return redirect("home")
+    return render(request, "registration/signup.html", {"form": form})
+
+
 @login_required
 def feed(request):
-    form=PostForm(request.POST or None)
-    if request.method=='POST' and form.is_valid():
-        p=form.save(commit=False); p.author=request.user; p.save(); return redirect('feed')
-    posts=visible_posts(request.user).select_related('author','group','shared_from__author','shared_from__group')
-    return render(request,'network/feed.html',{'posts':posts,'form':form})
+    form = PostForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        p = form.save(commit=False)
+        p.author = request.user
+        p.save()
+        return redirect("feed")
+    posts = visible_posts(request.user).select_related(
+        "author", "group", "shared_from__author", "shared_from__group"
+    )
+    return render(request, "network/feed.html", {"posts": posts, "form": form})
+
+
 @login_required
-def profile(request,username):
-    user=get_object_or_404(User,username=username); Profile.objects.get_or_create(user=user)
-    fs=Friendship.objects.filter(Q(sender=request.user,receiver=user)|Q(sender=user,receiver=request.user)).first()
-    state='friend' if fs and fs.status=='accepted' else 'incoming' if fs and fs.sender==user else 'outgoing' if fs else 'none'
-    stats={'posts':user.posts.count(),'friends':Friendship.objects.filter(Q(sender=user,status='accepted')|Q(receiver=user,status='accepted')).count(),'followers':Follow.objects.filter(target=user).count()}
-    return render(request,'network/profile.html',{'profile_user':user,'profile':user.profile,'posts':user.posts.all(),'is_following':Follow.objects.filter(follower=request.user,target=user).exists(),'friend_state':state,'stats':stats})
+def profile(request, username):
+    user = get_object_or_404(User, username=username)
+    Profile.objects.get_or_create(user=user)
+    fs = Friendship.objects.filter(
+        Q(sender=request.user, receiver=user) | Q(sender=user, receiver=request.user)
+    ).first()
+    state = (
+        "friend"
+        if fs and fs.status == "accepted"
+        else "incoming" if fs and fs.sender == user else "outgoing" if fs else "none"
+    )
+    stats = {
+        "posts": user.posts.count(),
+        "friends": Friendship.objects.filter(
+            Q(sender=user, status="accepted") | Q(receiver=user, status="accepted")
+        ).count(),
+        "followers": Follow.objects.filter(target=user).count(),
+    }
+    return render(
+        request,
+        "network/profile.html",
+        {
+            "profile_user": user,
+            "profile": user.profile,
+            "posts": user.posts.filter(group__isnull=True),
+            "is_following": Follow.objects.filter(
+                follower=request.user, target=user
+            ).exists(),
+            "friend_state": state,
+            "stats": stats,
+        },
+    )
+
+
 @login_required
 def edit_profile(request):
-    profile,_=Profile.objects.get_or_create(user=request.user); form=ProfileForm(request.POST or None,instance=profile)
-    if form.is_valid(): form.save(); return redirect('profile',request.user.username)
-    return render(request,'network/form.html',{'form':form,'title':'Редагування профілю'})
-@login_required
-@require_POST
-def toggle_like(request,pk):
-    post=get_object_or_404(Post,pk=pk); like,created=Like.objects.get_or_create(user=request.user,post=post)
-    if not created: like.delete()
-    elif post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} вподобав вашу публікацію',url=f'/u/{post.author.username}/',kind='like')
-    return redirect(request.META.get('HTTP_REFERER','feed'))
-@login_required
-@require_POST
-def add_comment(request,pk):
-    post=get_object_or_404(Post,pk=pk); form=CommentForm(request.POST)
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    form = ProfileForm(request.POST or None, instance=profile)
     if form.is_valid():
-        c=form.save(commit=False); c.post=post; c.user=request.user; c.save()
-        if post.author!=request.user: create_notification(post.author,request.user,f'{request.user.username} прокоментував вашу публікацію',url=f'/u/{post.author.username}/',kind='comment')
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+        form.save()
+        return redirect("profile", request.user.username)
+    return render(
+        request, "network/form.html", {"form": form, "title": "Редагування профілю"}
+    )
+
+
 @login_required
 @require_POST
-def share_post(request,pk):
-    original=get_object_or_404(Post,pk=pk)
-    if original.shared_from: original=original.shared_from
-    Post.objects.create(author=request.user,shared_from=original,body=request.POST.get('body',''))
-    if original.author!=request.user: create_notification(original.author,request.user,f'{request.user.username} поширив вашу публікацію',url=f'/u/{original.author.username}/',kind='like')
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+def toggle_like(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+    if not post_visible_to(post, request.user):
+        return HttpResponseForbidden("Пост недоступний")
+    like, created = Like.objects.get_or_create(user=request.user, post=post)
+    if not created:
+        like.delete()
+    elif post.author != request.user:
+        create_notification(
+            post.author,
+            request.user,
+            f"{request.user.username} вподобав вашу публікацію",
+            url=f"/u/{post.author.username}/",
+            kind="like",
+        )
+    return safe_redirect(request, "feed")
+
+
 @login_required
 @require_POST
-def rate_post(request,pk):
+def add_comment(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+    if not post_visible_to(post, request.user):
+        return HttpResponseForbidden("Пост недоступний")
+    form = CommentForm(request.POST)
+    if form.is_valid():
+        c = form.save(commit=False)
+        c.post = post
+        c.user = request.user
+        c.save()
+        if post.author != request.user:
+            create_notification(
+                post.author,
+                request.user,
+                f"{request.user.username} прокоментував вашу публікацію",
+                url=f"/u/{post.author.username}/",
+                kind="comment",
+            )
+    return safe_redirect(request, "feed")
+
+
+@login_required
+@require_POST
+def share_post(request, pk):
+    original = get_object_or_404(Post, pk=pk)
+    if not post_visible_to(original, request.user):
+        return HttpResponseForbidden("Пост недоступний")
+    if original.shared_from:
+        original = original.shared_from
+    Post.objects.create(
+        author=request.user, shared_from=original, body=request.POST.get("body", "")
+    )
+    if original.author != request.user:
+        create_notification(
+            original.author,
+            request.user,
+            f"{request.user.username} поширив вашу публікацію",
+            url=f"/u/{original.author.username}/",
+            kind="like",
+        )
+    return safe_redirect(request, "feed")
+
+
+@login_required
+@require_POST
+def rate_post(request, pk):
     """Оцінка публікації 1-5 з необов'язковим відгуком; повторне надсилання оновлює існуючий запис."""
-    post=get_object_or_404(Post,pk=pk); form=RatingForm(request.POST)
+    post = get_object_or_404(Post, pk=pk)
+    if not post_visible_to(post, request.user):
+        return HttpResponseForbidden("Пост недоступний")
+    form = RatingForm(request.POST)
     if form.is_valid():
-        rating,created=Rating.objects.get_or_create(user=request.user,post=post,defaults={'value':form.cleaned_data['value'],'review':form.cleaned_data['review']})
-        if not created: rating.value=form.cleaned_data['value'];rating.review=form.cleaned_data['review'];rating.save()
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+        rating, created = Rating.objects.get_or_create(
+            user=request.user,
+            post=post,
+            defaults={
+                "value": form.cleaned_data["value"],
+                "review": form.cleaned_data["review"],
+            },
+        )
+        if not created:
+            rating.value = form.cleaned_data["value"]
+            rating.review = form.cleaned_data["review"]
+            rating.save()
+    return safe_redirect(request, "feed")
+
+
 @login_required
 @require_POST
-def follow(request,username):
-    target=get_object_or_404(User,username=username)
-    if target!=request.user:
-        obj,created=Follow.objects.get_or_create(follower=request.user,target=target)
-        if created: create_notification(target,request.user,f'@{request.user.username} підписався на вас',f'/u/{request.user.username}/',kind='follow')
-        else: obj.delete()
-    return redirect('profile',username)
-def _is_group_admin(user,group):
-    return group.owner_id==user.id or Membership.objects.filter(group=group,user=user,is_admin=True).exists()
+def follow(request, username):
+    target = get_object_or_404(User, username=username)
+    if target != request.user:
+        obj, created = Follow.objects.get_or_create(
+            follower=request.user, target=target
+        )
+        if created:
+            create_notification(
+                target,
+                request.user,
+                f"@{request.user.username} підписався на вас",
+                f"/u/{request.user.username}/",
+                kind="follow",
+            )
+        else:
+            obj.delete()
+    return redirect("profile", username)
+
+
+def _is_group_admin(user, group):
+    return (
+        group.owner_id == user.id
+        or Membership.objects.filter(group=group, user=user, is_admin=True).exists()
+    )
+
+
 @login_required
 def create_group(request):
-    form=GroupForm(request.POST or None)
+    form = GroupForm(request.POST or None)
     if form.is_valid():
-        g=form.save(commit=False); g.owner=request.user; g.save(); Membership.objects.create(user=request.user,group=g,is_admin=True); return redirect('group_detail',g.pk)
-    return render(request,'network/form.html',{'form':form,'title':'Нова спільнота'})
+        g = form.save(commit=False)
+        g.owner = request.user
+        g.save()
+        Membership.objects.create(user=request.user, group=g, is_admin=True)
+        return redirect("group_detail", g.pk)
+    return render(
+        request, "network/form.html", {"form": form, "title": "Нова спільнота"}
+    )
+
+
 @login_required
 def groups_list(request):
-    q=request.GET.get('q','').strip()
-    groups=Group.objects.annotate(member_count=Count('members',distinct=True),post_count=Count('posts',distinct=True)).order_by('name')
-    if q: groups=groups.filter(name__icontains=q)
-    return render(request,'network/groups.html',{'groups':groups,'q':q})
+    q = request.GET.get("q", "").strip()
+    groups = Group.objects.annotate(
+        member_count=Count("members", distinct=True),
+        post_count=Count("posts", distinct=True),
+    ).order_by("name")
+    if q:
+        groups = groups.filter(name__icontains=q)
+    return render(request, "network/groups.html", {"groups": groups, "q": q})
+
+
 @login_required
-def group_detail(request,pk):
-    group=get_object_or_404(Group,pk=pk); membership=Membership.objects.filter(group=group,user=request.user).first(); member=membership is not None; form=PostForm(request.POST or None)
-    is_owner=group.owner_id==request.user.id; group_admin=is_owner or bool(membership and membership.is_admin)
-    if request.method=='POST' and member and form.is_valid():
-        p=form.save(commit=False); p.author=request.user; p.group=group; p.save(); return redirect('group_detail',pk)
-    memberships=group.membership_set.select_related('user').order_by('-is_admin','user__username')
-    return render(request,'network/group.html',{'group':group,'member':member,'is_owner':is_owner,'group_admin':group_admin,'memberships':memberships,'posts':group.posts.select_related('author'),'form':form})
+def group_detail(request, pk):
+    group = get_object_or_404(Group, pk=pk)
+    membership = Membership.objects.filter(group=group, user=request.user).first()
+    member = membership is not None
+    form = PostForm(request.POST or None)
+    is_owner = group.owner_id == request.user.id
+    group_admin = is_owner or bool(membership and membership.is_admin)
+    if request.method == "POST" and member and form.is_valid():
+        p = form.save(commit=False)
+        p.author = request.user
+        p.group = group
+        p.save()
+        return redirect("group_detail", pk)
+    memberships = group.membership_set.select_related("user").order_by(
+        "-is_admin", "user__username"
+    )
+    return render(
+        request,
+        "network/group.html",
+        {
+            "group": group,
+            "member": member,
+            "is_owner": is_owner,
+            "group_admin": group_admin,
+            "memberships": memberships,
+            "posts": (
+                group.posts.select_related("author") if member else group.posts.none()
+            ),
+            "form": form,
+        },
+    )
+
+
 @login_required
 @require_POST
-def join_group(request,pk):
-    group=get_object_or_404(Group,pk=pk); Membership.objects.get_or_create(user=request.user,group=group); return redirect('group_detail',pk)
+def join_group(request, pk):
+    group = get_object_or_404(Group, pk=pk)
+    Membership.objects.get_or_create(user=request.user, group=group)
+    return redirect("group_detail", pk)
+
+
 @login_required
 @require_POST
-def leave_group(request,pk):
-    group=get_object_or_404(Group,pk=pk)
-    if group.owner_id==request.user.id:
-        messages.error(request,'Власник не може покинути власну групу.'); return redirect('group_detail',pk)
-    Membership.objects.filter(group=group,user=request.user).delete(); return redirect('group_detail',pk)
+def leave_group(request, pk):
+    group = get_object_or_404(Group, pk=pk)
+    if group.owner_id == request.user.id:
+        messages.error(request, "Власник не може покинути власну групу.")
+        return redirect("group_detail", pk)
+    Membership.objects.filter(group=group, user=request.user).delete()
+    return redirect("group_detail", pk)
+
+
 @login_required
 @require_POST
-def group_delete_post(request,pk,post_pk):
-    group=get_object_or_404(Group,pk=pk); post=get_object_or_404(Post,pk=post_pk,group=group)
-    if not (_is_group_admin(request.user,group) or post.author_id==request.user.id): raise Http404
-    post.delete(); return redirect('group_detail',pk)
+def group_delete_post(request, pk, post_pk):
+    group = get_object_or_404(Group, pk=pk)
+    post = get_object_or_404(Post, pk=post_pk, group=group)
+    if not (_is_group_admin(request.user, group) or post.author_id == request.user.id):
+        raise Http404
+    post.delete()
+    return redirect("group_detail", pk)
+
+
 @login_required
 @require_POST
-def group_kick_member(request,pk,user_id):
-    group=get_object_or_404(Group,pk=pk)
-    if not _is_group_admin(request.user,group): raise Http404
-    target=get_object_or_404(User,pk=user_id)
-    if target.id==group.owner_id or (Membership.objects.filter(group=group,user=target,is_admin=True).exists() and request.user.id!=group.owner_id): raise Http404
-    Membership.objects.filter(group=group,user=target).delete(); return redirect('group_detail',pk)
+def group_kick_member(request, pk, user_id):
+    group = get_object_or_404(Group, pk=pk)
+    if not _is_group_admin(request.user, group):
+        raise Http404
+    target = get_object_or_404(User, pk=user_id)
+    if target.id == group.owner_id or (
+        Membership.objects.filter(group=group, user=target, is_admin=True).exists()
+        and request.user.id != group.owner_id
+    ):
+        raise Http404
+    Membership.objects.filter(group=group, user=target).delete()
+    return redirect("group_detail", pk)
+
+
 @login_required
 @require_POST
-def group_toggle_admin(request,pk,user_id):
-    group=get_object_or_404(Group,pk=pk)
-    if group.owner_id!=request.user.id: raise Http404
-    membership=get_object_or_404(Membership,group=group,user_id=user_id)
-    membership.is_admin=not membership.is_admin; membership.save(update_fields=['is_admin']); return redirect('group_detail',pk)
+def group_toggle_admin(request, pk, user_id):
+    group = get_object_or_404(Group, pk=pk)
+    if group.owner_id != request.user.id:
+        raise Http404
+    membership = get_object_or_404(Membership, group=group, user_id=user_id)
+    membership.is_admin = not membership.is_admin
+    membership.save(update_fields=["is_admin"])
+    return redirect("group_detail", pk)
+
+
 @login_required
 @require_POST
-def rate_group(request,pk):
+def rate_group(request, pk):
     """Оцінка групи 1-5 з необов'язковим відгуком; повторне надсилання оновлює існуючий запис."""
-    group=get_object_or_404(Group,pk=pk); form=RatingForm(request.POST)
+    group = get_object_or_404(Group, pk=pk)
+    form = RatingForm(request.POST)
     if form.is_valid():
-        rating,created=Rating.objects.get_or_create(user=request.user,group=group,defaults={'value':form.cleaned_data['value'],'review':form.cleaned_data['review']})
-        if not created: rating.value=form.cleaned_data['value'];rating.review=form.cleaned_data['review'];rating.save()
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+        rating, created = Rating.objects.get_or_create(
+            user=request.user,
+            group=group,
+            defaults={
+                "value": form.cleaned_data["value"],
+                "review": form.cleaned_data["review"],
+            },
+        )
+        if not created:
+            rating.value = form.cleaned_data["value"]
+            rating.review = form.cleaned_data["review"]
+            rating.save()
+    return safe_redirect(request, "feed")
+
+
 @login_required
 @require_POST
-def rating_hide(request,pk):
+def rating_hide(request, pk):
     """Модерація: лише staff ховає відгук із стрічки та середніх оцінок."""
-    if not request.user.is_staff: raise Http404
-    rating=get_object_or_404(Rating,pk=pk); rating.is_approved=False; rating.save(update_fields=['is_approved'])
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    if not request.user.is_staff:
+        return HttpResponseForbidden("Лише для модераторів")
+    rating = get_object_or_404(Rating, pk=pk)
+    rating.is_approved = False
+    rating.save(update_fields=["is_approved"])
+    return safe_redirect(request, "feed")
+
+
 @login_required
 @require_POST
-def rating_restore(request,pk):
+def rating_restore(request, pk):
     """Модерація: лише staff повертає прихований відгук."""
-    if not request.user.is_staff: raise Http404
-    rating=get_object_or_404(Rating,pk=pk); rating.is_approved=True; rating.save(update_fields=['is_approved'])
-    return redirect(request.META.get('HTTP_REFERER','feed'))
+    if not request.user.is_staff:
+        return HttpResponseForbidden("Лише для модераторів")
+    rating = get_object_or_404(Rating, pk=pk)
+    rating.is_approved = True
+    rating.save(update_fields=["is_approved"])
+    return safe_redirect(request, "feed")
+
+
 @login_required
 def notifications(request):
-    items=request.user.notifications.order_by('-created_at'); items.update(is_read=True); return render(request,'network/notifications.html',{'items':items})
+    items = request.user.notifications.order_by("-created_at")
+    items.update(is_read=True)
+    return render(request, "network/notifications.html", {"items": items})
+
+
 @login_required
 def notification_settings(request):
-    setting,_=NotificationSetting.objects.get_or_create(user=request.user); form=NotificationSettingForm(request.POST or None,instance=setting)
-    if form.is_valid(): form.save(); return redirect('notifications')
-    return render(request,'network/notification_settings.html',{'form':form,'title':'Налаштування сповіщень'})
+    setting, _ = NotificationSetting.objects.get_or_create(user=request.user)
+    form = NotificationSettingForm(request.POST or None, instance=setting)
+    if form.is_valid():
+        form.save()
+        return redirect("notifications")
+    return render(
+        request,
+        "network/notification_settings.html",
+        {"form": form, "title": "Налаштування сповіщень"},
+    )
+
+
 @login_required
 def chats(request):
-    items=[]
-    for c in request.user.conversations.prefetch_related('participants','messages__sender'):
-        last=c.messages.last()
-        if c.title: title=c.title
-        elif c.participants.count()==2: title='@'+next(u.username for u in c.participants.all() if u!=request.user)
-        else: title=f'Груповий чат · {c.participants.count()} учасників'
-        items.append({'chat':c,'title':title,'last':last})
-    items.sort(key=lambda i:i['last'].created_at if i['last'] else i['chat'].created_at,reverse=True)
-    return render(request,'network/chats.html',{'items':items})
+    items = []
+    for c in request.user.conversations.prefetch_related(
+        "participants", "messages__sender"
+    ):
+        last = c.messages.last()
+        if c.title:
+            title = c.title
+        elif c.participants.count() == 2:
+            title = "@" + next(
+                u.username for u in c.participants.all() if u != request.user
+            )
+        else:
+            title = f"Груповий чат · {c.participants.count()} учасників"
+        items.append({"chat": c, "title": title, "last": last})
+    items.sort(
+        key=lambda i: i["last"].created_at if i["last"] else i["chat"].created_at,
+        reverse=True,
+    )
+    return render(request, "network/chats.html", {"items": items})
+
+
 @login_required
-def conversation(request,pk):
-    chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); form=MessageForm(request.POST or None)
-    if form.is_valid(): m=form.save(commit=False);m.sender=request.user;m.conversation=chat;m.save();notify_message(m);return redirect('conversation',pk)
-    people=chat.participants.all()
-    title=chat.title or ('@'+next(u.username for u in people if u!=request.user) if people.count()==2 else 'Груповий чат')
-    return render(request,'network/conversation.html',{'chat':chat,'title':title,'people':people,'form':form})
+def conversation(request, pk):
+    chat = get_object_or_404(
+        Conversation.objects.filter(participants=request.user), pk=pk
+    )
+    form = MessageForm(request.POST or None)
+    if form.is_valid():
+        m = form.save(commit=False)
+        m.sender = request.user
+        m.conversation = chat
+        m.save()
+        notify_message(m)
+        return redirect("conversation", pk)
+    people = chat.participants.all()
+    title = chat.title or (
+        "@" + next(u.username for u in people if u != request.user)
+        if people.count() == 2
+        else "Груповий чат"
+    )
+    return render(
+        request,
+        "network/conversation.html",
+        {"chat": chat, "title": title, "people": people, "form": form},
+    )
+
+
 @login_required
-def start_chat(request,username):
-    other=get_object_or_404(User,username=username)
-    if other==request.user: return redirect('chats')
-    for c in Conversation.objects.filter(participants=request.user).filter(participants=other):
-        if c.participants.count()==2: return redirect('conversation',c.pk)
-    c=Conversation.objects.create(); c.participants.add(request.user,other); return redirect('conversation',c.pk)
+def start_chat(request, username):
+    other = get_object_or_404(User, username=username)
+    if other == request.user:
+        return redirect("chats")
+    if not Friendship.objects.filter(
+        Q(sender=request.user, receiver=other, status="accepted")
+        | Q(sender=other, receiver=request.user, status="accepted")
+    ).exists():
+        return redirect("profile", username)
+    for c in Conversation.objects.filter(participants=request.user).filter(
+        participants=other
+    ):
+        if c.participants.count() == 2:
+            return redirect("conversation", c.pk)
+    c = Conversation.objects.create()
+    c.participants.add(request.user, other)
+    return redirect("conversation", c.pk)
+
+
 @login_required
 def conversation_create(request):
-    friends=User.objects.filter(Q(received_friendships__sender=request.user,received_friendships__status='accepted')|Q(sent_friendships__receiver=request.user,sent_friendships__status='accepted')).exclude(pk=request.user.pk).distinct()
-    form=ConversationForm(request.POST or None); form.fields['participants'].queryset=friends
+    friends = (
+        User.objects.filter(
+            Q(
+                received_friendships__sender=request.user,
+                received_friendships__status="accepted",
+            )
+            | Q(
+                sent_friendships__receiver=request.user,
+                sent_friendships__status="accepted",
+            )
+        )
+        .exclude(pk=request.user.pk)
+        .distinct()
+    )
+    form = ConversationForm(request.POST or None)
+    form.fields["participants"].queryset = friends
     if form.is_valid():
-        c=Conversation.objects.create(title=form.cleaned_data['title']); c.participants.add(request.user,*form.cleaned_data['participants']); return redirect('conversation',c.pk)
-    return render(request,'network/form.html',{'form':form,'title':'Новий чат'})
+        c = Conversation.objects.create(title=form.cleaned_data["title"])
+        c.participants.add(request.user, *form.cleaned_data["participants"])
+        return redirect("conversation", c.pk)
+    return render(request, "network/form.html", {"form": form, "title": "Новий чат"})
+
+
 @login_required
 @require_POST
-def chat_upload(request,pk):
-    chat=get_object_or_404(Conversation.objects.filter(participants=request.user),pk=pk); file=request.FILES.get('attachment')
+def chat_upload(request, pk):
+    chat = get_object_or_404(
+        Conversation.objects.filter(participants=request.user), pk=pk
+    )
+    file = request.FILES.get("attachment")
     if file:
-        m=Message.objects.create(conversation=chat,sender=request.user,body=request.POST.get('body',''),attachment=file); notify_message(m)
-        async_to_sync(get_channel_layer().group_send)(f'chat_{chat.pk}',{'type':'chat.message','message':message_payload(m)})
-    return redirect('conversation',pk)
+        if not file.name.lower().endswith(UPLOAD_EXTENSIONS):
+            return HttpResponseForbidden(
+                "Файл цього типу заборонено. Дозволено: зображення, відео, pdf, txt, zip."
+            )
+        if file.size > UPLOAD_MAX_BYTES:
+            return HttpResponseForbidden("Файл занадто великий (макс. 10 МБ).")
+        m = Message.objects.create(
+            conversation=chat,
+            sender=request.user,
+            body=request.POST.get("body", ""),
+            attachment=file,
+        )
+        notify_message(m)
+        try:
+            async_to_sync(get_channel_layer().group_send)(
+                f"chat_{chat.pk}",
+                {"type": "chat.message", "message": message_payload(m)},
+            )
+        except (ChannelFull, ConnectionError):
+            pass
+    return redirect("conversation", pk)
+
+
 @login_required
 def friend_requests(request):
-    incoming=request.user.received_friendships.filter(status='pending').select_related('sender')
-    outgoing=request.user.sent_friendships.filter(status='pending').select_related('receiver')
-    accepted=Friendship.objects.filter(Q(sender=request.user,status='accepted')|Q(receiver=request.user,status='accepted')).select_related('sender','receiver')
-    friends=[(f.receiver if f.sender==request.user else f.sender) for f in accepted]
-    return render(request,'network/friends.html',{'incoming':incoming,'outgoing':outgoing,'friends':friends})
+    incoming = request.user.received_friendships.filter(
+        status="pending"
+    ).select_related("sender")
+    outgoing = request.user.sent_friendships.filter(status="pending").select_related(
+        "receiver"
+    )
+    accepted = Friendship.objects.filter(
+        Q(sender=request.user, status="accepted")
+        | Q(receiver=request.user, status="accepted")
+    ).select_related("sender", "receiver")
+    friends = [(f.receiver if f.sender == request.user else f.sender) for f in accepted]
+    return render(
+        request,
+        "network/friends.html",
+        {"incoming": incoming, "outgoing": outgoing, "friends": friends},
+    )
+
+
 @login_required
 @require_POST
-def friend_action(request,username):
-    target=get_object_or_404(User,username=username); action=request.POST.get('action') or 'send'; incoming=Friendship.objects.filter(sender=target,receiver=request.user).first(); outgoing=Friendship.objects.filter(sender=request.user,receiver=target).first()
-    if action in('accept','send') and incoming and incoming.status=='pending':
-        incoming.status='accepted';incoming.save();create_notification(target,request.user,f'@{request.user.username} прийняв ваш запит у друзі',f'/u/{request.user.username}/',kind='friend')
-    elif action=='reject': Friendship.objects.filter(sender=target,receiver=request.user,status='pending').delete()
-    elif action=='cancel': Friendship.objects.filter(sender=request.user,receiver=target,status='pending').delete()
-    elif action=='remove': Friendship.objects.filter(Q(sender=request.user,receiver=target)|Q(sender=target,receiver=request.user),status='accepted').delete()
-    elif action=='send' and target!=request.user and not incoming and not outgoing:
-        Friendship.objects.create(sender=request.user,receiver=target);create_notification(target,request.user,f'@{request.user.username} надіслав вам запит у друзі','/friends/',kind='friend')
-    return redirect(request.META.get('HTTP_REFERER') or f'/u/{username}/')
+def friend_action(request, username):
+    target = get_object_or_404(User, username=username)
+    action = request.POST.get("action") or "send"
+    incoming = Friendship.objects.filter(sender=target, receiver=request.user).first()
+    outgoing = Friendship.objects.filter(sender=request.user, receiver=target).first()
+    if action in ("accept", "send") and incoming and incoming.status == "pending":
+        incoming.status = "accepted"
+        incoming.save()
+        create_notification(
+            target,
+            request.user,
+            f"@{request.user.username} прийняв ваш запит у друзі",
+            f"/u/{request.user.username}/",
+            kind="friend",
+        )
+    elif action == "reject":
+        Friendship.objects.filter(
+            sender=target, receiver=request.user, status="pending"
+        ).delete()
+    elif action == "cancel":
+        Friendship.objects.filter(
+            sender=request.user, receiver=target, status="pending"
+        ).delete()
+    elif action == "remove":
+        Friendship.objects.filter(
+            Q(sender=request.user, receiver=target)
+            | Q(sender=target, receiver=request.user),
+            status="accepted",
+        ).delete()
+    elif action == "send" and target != request.user and not incoming and not outgoing:
+        try:
+            Friendship.objects.create(sender=request.user, receiver=target)
+        except IntegrityError:
+            pass
+        else:
+            create_notification(
+                target,
+                request.user,
+                f"@{request.user.username} надіслав вам запит у друзі",
+                "/friends/",
+                kind="friend",
+            )
+    return safe_redirect(request, f"/u/{username}/")
+
 
 def check_username(request):
-    q=request.GET.get('q','').strip()
-    taken=User.objects.filter(username__iexact=q).exists()
+    q = request.GET.get("q", "").strip()
+    taken = User.objects.filter(username__iexact=q).exists()
     from django.http import JsonResponse
-    return JsonResponse({'available':bool(q) and not taken})
+
+    return JsonResponse({"available": bool(q) and not taken})
+
 
 @login_required
 def search(request):
-    q=request.GET.get('q','').strip(); users=[]; groups=[]
+    q = request.GET.get("q", "").strip()
+    users = []
+    groups = []
     if q:
-        users=list(User.objects.filter(Q(username__icontains=q)|Q(first_name__icontains=q)|Q(last_name__icontains=q)).exclude(pk=request.user.pk).select_related('profile')[:20])
-        friend_ids={f.pk for f in users if Friendship.objects.filter(Q(sender=request.user,receiver=f,status='accepted')|Q(sender=f,receiver=request.user,status='accepted')).exists()}
-        groups=Group.objects.filter(name__icontains=q).annotate(member_count=Count('members'))[:20]
+        users = list(
+            User.objects.filter(
+                Q(username__icontains=q)
+                | Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+            )
+            .exclude(pk=request.user.pk)
+            .select_related("profile")[:20]
+        )
+        friend_ids = {
+            f.pk
+            for f in users
+            if Friendship.objects.filter(
+                Q(sender=request.user, receiver=f, status="accepted")
+                | Q(sender=f, receiver=request.user, status="accepted")
+            ).exists()
+        }
+        groups = Group.objects.filter(name__icontains=q).annotate(
+            member_count=Count("members")
+        )[:20]
     else:
-        friend_ids=set()
-    return render(request,'network/search.html',{'q':q,'users':users,'friend_ids':friend_ids,'groups':groups})
+        friend_ids = set()
+    return render(
+        request,
+        "network/search.html",
+        {"q": q, "users": users, "friend_ids": friend_ids, "groups": groups},
+    )
+
 
 @login_required
 @require_POST
 def set_theme(request):
     from django.http import JsonResponse
-    theme=request.POST.get('theme')
-    if theme not in ('auto','light','dark'): theme='light'
-    profile,_=Profile.objects.get_or_create(user=request.user); profile.theme=theme
-    palette=request.POST.get('palette')
-    if palette in PRESETS: profile.palette=palette
-    profile.save()
-    return JsonResponse({'theme':theme,'palette':profile.palette})
 
-PRESETS={'violet':('Фіолет','#6757e8','#f5f6fa','#1a1e2a'),'ocean':('Океан','#0a7db6','#eef6fb','#0a1420'),'forest':('Ліс','#178a50','#f0f7f1','#0d1712'),'sunset':('Захід','#e0572a','#fdf4ee','#191014'),'mono':('Монохром','#1f2430','#f4f4f5','#000000')}
+    theme = request.POST.get("theme")
+    if theme not in ("auto", "light", "dark"):
+        theme = "light"
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    profile.theme = theme
+    palette = request.POST.get("palette")
+    if palette in PRESETS:
+        profile.palette = palette
+    profile.save()
+    return JsonResponse({"theme": theme, "palette": profile.palette})
+
+
+PRESETS = {
+    "violet": ("Фіолет", "#6757e8", "#f5f6fa", "#1a1e2a"),
+    "ocean": ("Океан", "#0a7db6", "#eef6fb", "#0a1420"),
+    "forest": ("Ліс", "#178a50", "#f0f7f1", "#0d1712"),
+    "sunset": ("Захід", "#e0572a", "#fdf4ee", "#191014"),
+    "mono": ("Монохром", "#1f2430", "#f4f4f5", "#000000"),
+}
+
 
 @login_required
 def settings_page(request):
-    profile,_=Profile.objects.get_or_create(user=request.user)
-    return render(request,'network/settings.html',{'profile':profile,'presets':PRESETS})
+    profile, _ = Profile.objects.get_or_create(user=request.user)
+    return render(
+        request, "network/settings.html", {"profile": profile, "presets": PRESETS}
+    )

@@ -1,3 +1,9 @@
 from django.contrib import admin
+from django.conf import settings
 from django.urls import include, path
-urlpatterns=[path('admin/',admin.site.urls),path('accounts/',include('allauth.urls')),path('',include('network.urls'))]
+
+urlpatterns = [
+    path(settings.ADMIN_URL, admin.site.urls),
+    path("accounts/", include("allauth.urls")),
+    path("", include("network.urls")),
+]

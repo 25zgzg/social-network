@@ -58,6 +58,8 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 .ruff_cache/
+test-results/
+playwright-report/
 ТЗ Соціальна мережа.pdf
 # === IDEs, Editors & OS Files ===
 .vscode/
@@ -76,3 +78,11 @@ Thumbs.db
 # === Docker & Deployment ===
 .docker/
 docker-compose.override.yml
+
+# === Graphify (knowledge graph build artifacts) ===
+graphify-out/
+graphify-out/cache/
+graphify-out/graph.html
+graphify-out/manifest.json
+graphify-out/.graphify_*
+graphify-out/20*/

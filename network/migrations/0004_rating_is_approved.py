@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('network', '0003_post_shared_from'),
+        ("network", "0003_post_shared_from"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='rating',
-            name='is_approved',
+            model_name="rating",
+            name="is_approved",
             field=models.BooleanField(default=True),
         ),
     ]

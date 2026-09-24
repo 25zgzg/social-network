@@ -6,23 +6,27 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('network', '0006_event'),
+        ("network", "0006_event"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='profile',
-            name='location',
+            model_name="profile",
+            name="location",
             field=models.CharField(blank=True, max_length=80),
         ),
         migrations.AddField(
-            model_name='profile',
-            name='status',
+            model_name="profile",
+            name="status",
             field=models.CharField(blank=True, max_length=120),
         ),
         migrations.AddField(
-            model_name='profile',
-            name='theme',
-            field=models.CharField(choices=[('light', 'Світла'), ('dark', 'Темна')], default='light', max_length=10),
+            model_name="profile",
+            name="theme",
+            field=models.CharField(
+                choices=[("light", "Світла"), ("dark", "Темна")],
+                default="light",
+                max_length=10,
+            ),
         ),
     ]

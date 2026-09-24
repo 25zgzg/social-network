@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.env
+media
+staticfiles
+graphify-out
+*.sqlite3
+node_modules
+.pytest_cache
+.opencode

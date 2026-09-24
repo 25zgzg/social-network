@@ -1,56 +1,79 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from channels.exceptions import ChannelFull
 from .models import Conversation, Notification, message_payload, notify_message
+
+MAX_MESSAGE_LENGTH = 5000
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.room_name = self.scope['url_route']['kwargs']['room_name']
-        self.room_group_name = f'chat_{self.room_name}'
-        user = self.scope.get('user')
+        self.room_name = self.scope["url_route"]["kwargs"]["room_name"]
+        self.room_group_name = f"chat_{self.room_name}"
+        user = self.scope.get("user")
         if user is None or not user.is_authenticated or not await self.is_participant():
             await self.close()
             return
-        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        try:
+            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        except (ChannelFull, ConnectionError):
+            await self.close()
+            return
         await self.accept()
 
     @database_sync_to_async
     def is_participant(self):
         try:
-            Conversation.objects.get(pk=int(self.room_name), participants=self.scope['user'])
+            Conversation.objects.get(
+                pk=int(self.room_name), participants=self.scope["user"]
+            )
         except (Conversation.DoesNotExist, ValueError, TypeError):
             return False
         return True
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        try:
+            await self.channel_layer.group_discard(
+                self.room_group_name, self.channel_name
+            )
+        except (ChannelFull, ConnectionError):
+            pass
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
-        message_text = data.get('message', '')
-        if not message_text:
+        try:
+            data = json.loads(text_data)
+        except (ValueError, TypeError):
+            return
+        message_text = data.get("message", "")
+        if not message_text or len(message_text) > MAX_MESSAGE_LENGTH:
             return
         msg = await self.create_message(message_text)
         if msg is None:
             await self.close()
             return
-        await self.channel_layer.group_send(
-            self.room_group_name,
-            {
-                'type': 'chat.message',
-                'message': msg,
-            }
-        )
+        try:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    "type": "chat.message",
+                    "message": msg,
+                },
+            )
+        except (ChannelFull, ConnectionError):
+            pass
 
     async def chat_message(self, event):
-        await self.send(text_data=json.dumps({'message': event['message']}))
+        await self.send(text_data=json.dumps({"message": event["message"]}))
 
     @database_sync_to_async
     def create_message(self, message_text):
-        conv = Conversation.objects.get(pk=int(self.room_name))
-        sender = self.scope.get('user')
+        sender = self.scope.get("user")
         if sender is None or not sender.is_authenticated:
+            return None
+        try:
+            conv = Conversation.objects.get(pk=int(self.room_name), participants=sender)
+        except (Conversation.DoesNotExist, ValueError, TypeError):
             return None
         msg = conv.messages.create(sender=sender, body=message_text)
         notify_message(msg)
@@ -61,22 +84,41 @@ class NotificationsConsumer(AsyncWebsocketConsumer):
     """Реальний час: пуш сповіщень у персональну групу користувача user_<id>."""
 
     async def connect(self):
-        user = self.scope.get('user')
+        user = self.scope.get("user")
         if user is None or not user.is_authenticated:
             await self.close()
             return
-        self.group_name = f'user_{user.id}'
-        await self.channel_layer.group_add(self.group_name, self.channel_name)
+        self.group_name = f"user_{user.id}"
+        try:
+            await self.channel_layer.group_add(self.group_name, self.channel_name)
+        except (ChannelFull, ConnectionError):
+            await self.close()
+            return
         await self.accept()
-        await self.send(text_data=json.dumps({'unread': await self.unread_count()}))
+        await self.send(text_data=json.dumps({"unread": await self.unread_count()}))
 
     async def disconnect(self, close_code):
-        if hasattr(self, 'group_name'):
-            await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if hasattr(self, "group_name"):
+            try:
+                await self.channel_layer.group_discard(
+                    self.group_name, self.channel_name
+                )
+            except (ChannelFull, ConnectionError):
+                pass
 
     @database_sync_to_async
     def unread_count(self):
-        return Notification.objects.filter(recipient=self.scope['user'], is_read=False).count()
+        return Notification.objects.filter(
+            recipient=self.scope["user"], is_read=False
+        ).count()
 
     async def notify(self, event):
-        await self.send(text_data=json.dumps({'text': event.get('text', ''), 'url': event.get('url', ''), 'unread': event.get('unread', 0)}))
+        await self.send(
+            text_data=json.dumps(
+                {
+                    "text": event.get("text", ""),
+                    "url": event.get("url", ""),
+                    "unread": event.get("unread", 0),
+                }
+            )
+        )

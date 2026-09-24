@@ -60,7 +60,7 @@ Without Docker: venv + `pip install -r requirements.txt`, local Redis at `redis:
 ## Testing
 
 ```bash
-docker compose exec web python manage.py test     # 72 unit tests
+docker compose exec web python manage.py test     # 95 unit tests
 # E2E (against a running server):
 venv/Scripts/python -m pip install -r requirements-dev.txt
 venv/Scripts/python -m playwright install chromium
@@ -134,7 +134,7 @@ docker compose exec web python manage.py seed_demo          # 8 демо-юзе�
 ## Тестування
 
 ```bash
-docker compose exec web python manage.py test     # 72 юніт-тести
+docker compose exec web python manage.py test     # 95 юніт-тести
 # E2E (проти запущеного сервера):
 venv/Scripts/python -m pip install -r requirements-dev.txt
 venv/Scripts/python -m playwright install chromium

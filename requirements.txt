@@ -1,7 +1,10 @@
-Django==6.0.7
+Django==6.0.8
 Pillow==12.3.0
 channels[daphne]==4.3.2
 channels-redis==4.2.1
 django-allauth==65.19.1
+PyJWT==2.10.1
 requests==2.34.2
 sentry-sdk==2.68.0
+python-dotenv==1.1.1
+whitenoise==6.9.0
