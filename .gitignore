@@ -79,6 +79,10 @@ Thumbs.db
 .docker/
 docker-compose.override.yml
 
+# === Local agent / tooling (not part of the app) ===
+.opencode/
+.graphifyignore
+
 # === Graphify (knowledge graph build artifacts) ===
 graphify-out/
 graphify-out/cache/
