@@ -2,8 +2,8 @@
 <div class="settings-tabs"><a class="active" href="{% url 'settings' %}"><i class="bi bi-palette" aria-hidden="true"></i> Персоналізація</a><a href="{% url 'notification_settings' %}"><i class="bi bi-bell" aria-hidden="true"></i> Сповіщення</a></div>
 
 <div class="card"><h2><i class="bi bi-circle-half" aria-hidden="true"></i> Режим теми</h2>
-<div class="d-flex gap-3 flex-wrap">
-{% for value,label in profile.THEMES %}<label class="d-flex align-items-center gap-2"><input type="radio" name="theme" value="{{value}}" {% if profile.theme == value %}checked{% endif %} onchange="apply(this)">{{label}}</label>{% endfor %}
+<div class="radio-row">
+{% for value,label in profile.THEMES %}<label class="chip-radio"><input type="radio" name="theme" value="{{value}}" {% if profile.theme == value %}checked{% endif %} onchange="apply(this)">{{label}}</label>{% endfor %}
 </div><small class="text-muted">«Як у системі» — тема пристрою визначається автоматично. Зміни зберігаються одразу.</small></div>
 
 <div class="card"><h2><i class="bi bi-palette" aria-hidden="true"></i> Кольорова палітра</h2>
@@ -23,6 +23,7 @@ function apply(input){
 		var t=value;
 		if(t==='auto'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}
 		document.documentElement.setAttribute('data-theme',t);
+		document.documentElement.setAttribute('data-bs-theme',t);
 	}else{
 		document.documentElement.setAttribute('data-palette',value);
 		document.querySelectorAll('.preset-card').forEach(function(c){c.classList.toggle('active',c.dataset.preset===value);});

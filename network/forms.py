@@ -18,12 +18,24 @@ class ProfileForm(forms.ModelForm):
     class Meta:
         model = Profile
         fields = ("status", "location", "bio", "avatar", "cover")
+        labels = {
+            "status": "Статус",
+            "location": "Місто",
+            "bio": "Про себе",
+            "avatar": "Аватар (URL)",
+            "cover": "Обкладинка (URL)",
+        }
+        widgets = {"bio": forms.Textarea(attrs={"rows": 4})}
 
 
 class PostForm(forms.ModelForm):
     class Meta:
         model = Post
         fields = ("body", "media_url")
+        labels = {
+            "body": "Текст публікації",
+            "media_url": "Посилання на медіа (необов'язково)",
+        }
         widgets = {
             "body": forms.Textarea(attrs={"rows": 3, "placeholder": "Що нового?"})
         }
@@ -40,12 +52,14 @@ class GroupForm(forms.ModelForm):
     class Meta:
         model = Group
         fields = ("name", "description")
+        labels = {"name": "Назва групи", "description": "Опис"}
 
 
 class MessageForm(forms.ModelForm):
     class Meta:
         model = Message
         fields = ("body",)
+        labels = {"body": "Повідомлення"}
 
 
 class ConversationForm(forms.Form):
@@ -63,6 +77,7 @@ class RatingForm(forms.ModelForm):
     class Meta:
         model = Rating
         fields = ("value", "review")
+        labels = {"value": "Оцінка (1–5)", "review": "Відгук (необов'язково)"}
         widgets = {"value": forms.NumberInput(attrs={"min": 1, "max": 5})}
 
 
@@ -77,3 +92,18 @@ class NotificationSettingForm(forms.ModelForm):
             "on_follow": "Нові підписники",
             "on_message": "Нові повідомлення в чатах",
         }
+
+
+# Підписи полів рендеряться без двокрапки — так виглядає чистіше в новому дизайні.
+for _form_class in (
+    SignupForm,
+    ProfileForm,
+    PostForm,
+    CommentForm,
+    GroupForm,
+    MessageForm,
+    ConversationForm,
+    RatingForm,
+    NotificationSettingForm,
+):
+    _form_class.label_suffix = ""

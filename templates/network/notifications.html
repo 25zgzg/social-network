@@ -1,1 +1,22 @@
-{% extends 'base.html' %}{% block content %}<div class="narrow"><h1><i class="bi bi-bell" aria-hidden="true"></i> Сповіщення</h1><p><a href="{% url 'notification_settings' %}"><i class="bi bi-gear" aria-hidden="true"></i> Налаштування сповіщень</a></p>{% for n in items %}<div class="card d-flex align-items-center flex-wrap gap-2"><b>@{{n.actor.username}}</b> {{n.text}}<small>{{n.created_at|timesince}} тому</small></div>{% empty %}<div class="card empty"><i class="bi bi-bell-slash" aria-hidden="true"></i>Нових сповіщень немає.</div>{% endfor %}</div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Сповіщення · UASocial{% endblock %}
+{% block content %}
+<div class="narrow">
+	<div class="d-flex align-items-center justify-content-between mb-3">
+		<h1><i class="bi bi-bell" aria-hidden="true"></i> Сповіщення</h1>
+		<a class="btn btn-light btn-sm" href="{% url 'notification_settings' %}"><i class="bi bi-gear" aria-hidden="true"></i> Налаштування</a>
+	</div>
+	{% for n in items %}
+	<div class="card notif-card">
+		<span class="notif-dot" aria-hidden="true"></span>
+		<div class="notif-body"><b>@{{n.actor.username}}</b> {{n.text}}</div>
+		<small>{{n.created_at|timesince}} тому</small>
+	</div>
+	{% empty %}
+	<div class="card empty">
+		<i class="bi bi-bell-slash" aria-hidden="true"></i>
+		Нових сповіщень немає.
+	</div>
+	{% endfor %}
+</div>
+{% endblock %}

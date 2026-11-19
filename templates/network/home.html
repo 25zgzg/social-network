@@ -1,1 +1,97 @@
-{% extends 'base.html' %}{% block content %}<section class="hero"><div><span class="pill">Українська соціальна платформа</span><h1>Спілкуйся. Створюй. Будь у спільноті.</h1><p>Друзі, публікації, тематичні групи й приватні розмови — в одному затишному просторі.</p>{% if not user.is_authenticated %}<a class="button btn btn-primary" href="{% url 'signup' %}">Приєднатися безкоштовно</a>{% endif %}</div></section><div class="layout"><section><h2><i class="bi bi-megaphone" aria-hidden="true"></i> Останні публікації</h2>{% include 'network/_posts.html' %}</section><aside><div class="card"><h3><i class="bi bi-people-fill" aria-hidden="true"></i> Популярні спільноти</h3>{% for g in groups %}<p class="popular-item"><a href="{{g.get_absolute_url}}">{{g.name}}</a> · {{g.member_count}} уч.</p>{% empty %}<p>Створи першу!</p>{% endfor %}{% if user.is_authenticated %}<a class="button btn btn-primary" href="{% url 'create_group' %}">Створити групу</a>{% endif %}</div><div class="card"><h3><i class="bi bi-award" aria-hidden="true"></i> Популярні користувачі</h3>{% for u in popular_users %}<p class="popular-item"><a href="{% url 'profile' u.username %}">@{{u.username}}</a> · {{u.follower_count}} підписників</p>{% empty %}<p>Ще нікого</p>{% endfor %}</div><div class="card"><h3><i class="bi bi-calendar-event" aria-hidden="true"></i> Найближчі події</h3>{% for e in upcoming_events %}<p class="event-item"><span class="block">{{e.title}}</span> · {{e.starts_at|date:'d.m H:i'}}{% if e.description %}<br><small>{{e.description|truncatewords:8}}</small>{% endif %}</p>{% empty %}<p>Подій немає</p>{% endfor %}</div></aside></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}UASocial — спілкуйся, створюй, будь у спільноті{% endblock %}
+{% block content %}
+<section class="hero">
+	<div class="aurora" aria-hidden="true"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
+	<span class="pill"><span class="dot" aria-hidden="true"></span>Українська соціальна платформа</span>
+	<h1>Спілкуйся. Створюй. Будь у&nbsp;спільноті.</h1>
+	<p class="lead">Друзі, публікації, тематичні групи, події та приватні розмови — в одному тихому просторі, де стрічку визначаєш ти, а не алгоритм.</p>
+	<div class="hero-cta">
+		{% if user.is_authenticated %}
+		<a class="button btn btn-primary" href="{% url 'feed' %}">До стрічки <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+		<a class="btn btn-outline-primary" href="{% url 'profile' user.username %}">Мій профіль</a>
+		{% else %}
+		<a class="button btn btn-primary" href="{% url 'signup' %}">Приєднатися безкоштовно <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+		<a class="btn btn-outline-primary" href="{% url 'account_login' %}">Увійти</a>
+		{% endif %}
+	</div>
+	<p class="hero-meta">
+		<span><i class="bi bi-clock-history" aria-hidden="true"></i>Хронологічна стрічка</span>
+		<span><i class="bi bi-people" aria-hidden="true"></i>Групи й події</span>
+		<span><i class="bi bi-chat-dots" aria-hidden="true"></i>Приватні чати</span>
+	</p>
+</section>
+
+<section class="section" id="features">
+	<div class="sec-head">
+		<p class="eyebrow">Можливості</p>
+		<h2>Все, що потрібно колу, — без зайвого</h2>
+		<p>Чотири речі, на яких тримається спільнота. Нічого, що відволікає від людей.</p>
+	</div>
+	<div class="features">
+		<article class="feature">
+			<span class="ico"><i class="bi bi-columns-gap" aria-hidden="true"></i></span>
+			<h3>Стрічка в хронології</h3>
+			<p>Ніяких прихованих алгоритмів: бачиш те, що сталося, у тому порядку, у якому сталося.</p>
+		</article>
+		<article class="feature">
+			<span class="ico"><i class="bi bi-people" aria-hidden="true"></i></span>
+			<h3>Групи за інтересами</h3>
+			<p>Створюй спільноти, публікуй у них і збирай людей навколо теми, а не навколо реклами.</p>
+		</article>
+		<article class="feature">
+			<span class="ico"><i class="bi bi-chat-dots" aria-hidden="true"></i></span>
+			<h3>Живі чати</h3>
+			<p>Приватні розмови з миттєвою доставкою повідомлень і сповіщеннями в реальному часі.</p>
+		</article>
+		<article class="feature">
+			<span class="ico"><i class="bi bi-calendar-event" aria-hidden="true"></i></span>
+			<h3>Події</h3>
+			<p>Плануй зустрічі, а не лише пости: дата, місце й учасники — в одній картці.</p>
+		</article>
+	</div>
+</section>
+
+<section class="section" id="feed">
+	<div class="sec-head">
+		<p class="eyebrow">Стрічка</p>
+		<h2>Що зараз відбувається</h2>
+	</div>
+	<div class="layout">
+		<section>{% include 'network/_posts.html' %}</section>
+		<aside>
+			<div class="card">
+				<h3><i class="bi bi-people-fill" aria-hidden="true"></i> Популярні спільноти</h3>
+				{% for g in groups %}<p class="popular-item"><a href="{{g.get_absolute_url}}">{{g.name}}</a> · {{g.member_count}} уч.</p>{% empty %}<p>Створи першу!</p>{% endfor %}
+				{% if user.is_authenticated %}<a class="button btn btn-primary btn-sm" style="width:100%;margin-top:12px" href="{% url 'create_group' %}">Створити групу</a>{% endif %}
+			</div>
+			<div class="card">
+				<h3><i class="bi bi-award" aria-hidden="true"></i> Популярні користувачі</h3>
+				{% for u in popular_users %}<p class="popular-item"><a href="{% url 'profile' u.username %}">@{{u.username}}</a> · {{u.follower_count}} підписників</p>{% empty %}<p>Ще нікого</p>{% endfor %}
+			</div>
+			<div class="card">
+				<h3><i class="bi bi-calendar-event" aria-hidden="true"></i> Найближчі події</h3>
+				{% for e in upcoming_events %}<p class="event-item"><span class="block">{{e.title}}</span> · {{e.starts_at|date:'d.m H:i'}}{% if e.description %}<br><small>{{e.description|truncatewords:8}}</small>{% endif %}</p>{% empty %}<p>Подій немає</p>{% endfor %}
+			</div>
+		</aside>
+	</div>
+</section>
+
+<section class="final">
+	{% if user.is_authenticated %}
+	<h2>Твоє коло вже тут</h2>
+	<p>Поділись думкою, знайди спільноту за інтересом або напиши другу — усе в одному місці.</p>
+	<div class="hero-cta">
+		<a class="button btn btn-primary" href="{% url 'feed' %}">Створити публікацію <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+		<a class="btn btn-outline-primary" href="{% url 'groups' %}">Оглянути групи</a>
+	</div>
+	{% else %}
+	<h2>Твоє коло вже тут</h2>
+	<p>Створи акаунт за хвилину — і почни з першої публікації. Без реклами, без забутих паролів, без зайвих кроків.</p>
+	<div class="hero-cta">
+		<a class="button btn btn-primary" href="{% url 'signup' %}">Створити акаунт <i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+		<a class="btn btn-outline-primary" href="{% url 'account_login' %}">У мене вже є</a>
+	</div>
+	{% endif %}
+</section>
+{% endblock %}

@@ -30,7 +30,7 @@ class Profile(models.Model):
     cover = models.URLField(blank=True, validators=[no_css_breakout])
     location = models.CharField(max_length=80, blank=True)
     status = models.CharField(max_length=120, blank=True)
-    theme = models.CharField(max_length=10, choices=THEMES, default=AUTO)
+    theme = models.CharField(max_length=10, choices=THEMES, default=LIGHT)
     VIOLET = "violet"
     OCEAN = "ocean"
     FOREST = "forest"
